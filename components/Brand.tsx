@@ -7,28 +7,21 @@
 
 import React from "react";
 
-export function LogoKIR({ size = 28 }: { size?: number }) {
+// Logo oficial extraido del Manual de Identidad Corporativa KIR (pagina 1).
+// El asset PNG vive en /public/kir-logo.png (262x115, fondo transparente).
+// El prop `size` controla la ALTURA en px; el ancho se ajusta proporcionalmente.
+export function LogoKIR({ size = 44 }: { size?: number }) {
+  const ratio = 262 / 115; // ancho / alto del asset original
   return (
-    <div
-      className="font-display font-black leading-none flex flex-col"
-      style={{ fontSize: size, letterSpacing: "-0.04em" }}
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/kir-logo.png"
+      alt="KIR Construcciones"
       title="KIR Construcciones"
-    >
-      <div className="flex items-baseline">
-        <span style={{ color: "#222222" }}>K</span>
-        <span style={{ color: "#98989A" }}>IR</span>
-      </div>
-      <div
-        className="bg-kir-negro text-white text-center font-semibold mt-1"
-        style={{
-          fontSize: size * 0.27,
-          letterSpacing: "0.32em",
-          padding: "2px 4px",
-        }}
-      >
-        CONSTRUCCIONES
-      </div>
-    </div>
+      width={Math.round(size * ratio)}
+      height={size}
+      style={{ display: "block", height: size, width: "auto" }}
+    />
   );
 }
 
