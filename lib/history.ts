@@ -96,3 +96,77 @@ export function saveOrUpdateMeeting(
   writeAll(all);
   return created;
 }
+
+// =============================================================================
+// Export / Import — backup manual del historial como archivo JSON
+// =============================================================================
+// Permite mover el historial entre navegadores/dominios/dispositivos sin
+// depender del servidor, y tener un respaldo offline.
+
+const EXPORT_VERSION = 1;
+
+export function exportHistoryJSON(): string {
+  const payload = {
+    app: "kir-meeting-agent",
+    kind: "history-backup",
+    version: EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    meetings: readAll(),
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+export interface ImportResult {
+  imported: number;
+  updated: number;
+  skipped: number;
+  total: number;
+}
+
+// Importa un backup mergeando con lo que ya hay. Dedupe por id; si un id ya
+// existe se queda con el de savedAt mas reciente.
+export function importHistoryJSON(jsonText: string): ImportResult {
+  let parsed: any;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    throw new Error("El archivo no es un JSON valido.");
+  }
+  const incoming: StoredMeeting[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.meetings)
+    ? parsed.meetings
+    : [];
+  if (!Array.isArray(incoming) || incoming.length === 0) {
+    throw new Error("El archivo no contiene minutas para importar.");
+  }
+
+  const current = readAll();
+  const byId = new Map<string, StoredMeeting>();
+  current.forEach((m) => byId.set(m.id, m));
+
+  let imported = 0;
+  let updated = 0;
+  let skipped = 0;
+
+  for (const m of incoming) {
+    if (!m || typeof m !== "object" || !m.id || !m.meeting || !m.analysis) {
+      skipped++;
+      continue;
+    }
+    const existing = byId.get(m.id);
+    if (!existing) {
+      byId.set(m.id, m);
+      imported++;
+    } else if ((m.savedAt || 0) > (existing.savedAt || 0)) {
+      byId.set(m.id, m);
+      updated++;
+    } else {
+      skipped++;
+    }
+  }
+
+  const merged = Array.from(byId.values());
+  writeAll(merged);
+  return { imported, updated, skipped, total: merged.length };
+}

@@ -4,11 +4,13 @@ import { useStore } from "@/lib/store";
 import { SectionHead, BracketedCard, CardHead, Button, Chev, Tag, Alert } from "./Brand";
 import { Actions } from "./Setup";
 import type { Task } from "@/lib/types";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   saveOrUpdateMeeting,
   listMeetings,
   deleteMeeting,
+  exportHistoryJSON,
+  importHistoryJSON,
   type StoredMeeting,
 } from "@/lib/history";
 
@@ -799,6 +801,13 @@ export function HistoryStage({
 
   const [meetings, setMeetings] = useState<StoredMeeting[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+
+  const showToast = (m: string) => {
+    setToast(m);
+    setTimeout(() => setToast(null), 3500);
+  };
 
   // localStorage solo existe en el browser; cargamos en useEffect.
   useEffect(() => {
@@ -809,6 +818,41 @@ export function HistoryStage({
   }, []);
 
   const refresh = () => setMeetings(listMeetings());
+
+  const handleExportBackup = () => {
+    const json = exportHistoryJSON();
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `kir-historial-minutas_${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast("Backup del historial descargado");
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const res = importHistoryJSON(String(reader.result || ""));
+        refresh();
+        showToast(
+          `Importado: ${res.imported} nuevas, ${res.updated} actualizadas, ${res.skipped} omitidas. Total: ${res.total}`
+        );
+      } catch (err: any) {
+        showToast("Error al importar: " + (err.message || "archivo invalido"));
+      }
+    };
+    reader.onerror = () => showToast("No se pudo leer el archivo");
+    reader.readAsText(file);
+    e.target.value = "";
+  };
 
   const handleLoad = (m: StoredMeeting) => {
     setMeeting(m.meeting);
@@ -913,10 +957,34 @@ export function HistoryStage({
         </BracketedCard>
       )}
 
+      <input
+        ref={importInputRef}
+        type="file"
+        accept="application/json,.json"
+        onChange={handleImportBackup}
+        style={{ display: "none" }}
+      />
+
       <Actions
-        left={<Button variant="ghost" onClick={onBack}>«« Volver a la minuta</Button>}
+        left={
+          <>
+            <Button variant="ghost" onClick={onBack}>«« Volver a la minuta</Button>
+            <Button variant="ghost" onClick={handleExportBackup} disabled={meetings.length === 0}>
+              Exportar backup .json
+            </Button>
+            <Button variant="ghost" onClick={() => importInputRef.current?.click()}>
+              Importar backup .json
+            </Button>
+          </>
+        }
         right={<Button variant="primary" onClick={onNext}>Ver mejoras <Chev className="text-white" /></Button>}
       />
+
+      {toast && (
+        <div className="fixed bottom-6 right-6 bg-kir-negro text-white px-5 py-3 font-display font-bold uppercase z-50 max-w-[480px]" style={{ fontSize: 11, letterSpacing: "0.14em" }}>
+          <span className="text-kir-teal mr-2">»»</span>{toast}
+        </div>
+      )}
     </>
   );
 }
