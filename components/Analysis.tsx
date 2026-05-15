@@ -17,6 +17,7 @@ export function AnalysisStage({ onBack, onNext }: { onBack: () => void; onNext: 
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const hasResult =
     !!analysis.executiveSummary ||
     analysis.topics.length +
@@ -26,6 +27,20 @@ export function AnalysisStage({ onBack, onNext }: { onBack: () => void; onNext: 
       analysis.openQuestions.length +
       analysis.nextSteps.length >
       0;
+
+  // Estimacion grosera de tiempo segun tamaño del transcript
+  const transcriptChars = capture.utterances.reduce((acc, u) => acc + u.text.length, 0) + capture.manualNotes.length;
+  const estimatedSec = Math.max(15, Math.min(240, Math.round(transcriptChars / 250)));
+
+  // Cronometro durante el loading
+  useEffect(() => {
+    if (!loading) {
+      setElapsedSec(0);
+      return;
+    }
+    const t = setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [loading]);
 
   const runAnalysis = async () => {
     setLoading(true);
@@ -44,14 +59,23 @@ export function AnalysisStage({ onBack, onNext }: { onBack: () => void; onNext: 
       });
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        throw new Error(e.error || `HTTP ${res.status}`);
+        let msg = e.error || `HTTP ${res.status}`;
+        if (res.status === 504 || res.status === 408) {
+          msg = "El analisis tardo mas del limite del servidor (timeout). Probá REINTENTAR — la transcripción NO se perdió, está guardada localmente. Si vuelve a fallar consistentemente, hay que cambiar el modelo a Haiku o partir la transcripción en partes.";
+        }
+        throw new Error(msg);
       }
       const data = await res.json();
       setAnalysis(data.analysis);
       setQuestions(data.questions || []);
       markDone("analysis");
     } catch (e: any) {
-      setError(e.message || "Error en análisis");
+      let msg = e.message || "Error en analisis";
+      // Network errors / connection drop tambien dejan la transcripcion intacta
+      if (e.name === "TypeError" && /fetch/i.test(msg)) {
+        msg = "Error de red durante el analisis. La transcripcion sigue guardada — reintenta cuando vuelva la conexion.";
+      }
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -93,8 +117,23 @@ export function AnalysisStage({ onBack, onNext }: { onBack: () => void; onNext: 
           <div className="font-display font-black text-2xl uppercase kir-blink" style={{ letterSpacing: "-0.02em" }}>
             Procesando transcripción
           </div>
-          <div className="text-kir-gris text-sm mt-3">
-            Claude está leyendo la transcripción atribuida y estructurando la información…
+          <div className="grid grid-cols-3 gap-4 mt-6 max-w-[600px] mx-auto">
+            <div className="border border-kir-gris-border p-3">
+              <div className="font-display uppercase text-kir-gris text-[9px]" style={{ letterSpacing: "0.22em" }}>Transcripción</div>
+              <div className="font-mono text-base mt-1">{transcriptChars.toLocaleString()} <span className="text-kir-gris text-xs">car.</span></div>
+            </div>
+            <div className="border border-kir-gris-border p-3">
+              <div className="font-display uppercase text-kir-gris text-[9px]" style={{ letterSpacing: "0.22em" }}>Tiempo</div>
+              <div className="font-mono text-base mt-1">{Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, "0")}</div>
+            </div>
+            <div className="border border-kir-gris-border p-3">
+              <div className="font-display uppercase text-kir-gris text-[9px]" style={{ letterSpacing: "0.22em" }}>Estimado</div>
+              <div className="font-mono text-base mt-1">~{Math.floor(estimatedSec / 60)}:{String(estimatedSec % 60).padStart(2, "0")}</div>
+            </div>
+          </div>
+          <div className="text-kir-gris text-sm mt-5 max-w-[640px] mx-auto leading-relaxed">
+            Claude está leyendo la transcripción atribuida y estructurando la información.
+            Para transcripciones largas puede tardar hasta varios minutos. <b>Si refrescás la página, no perdés la transcripción</b> — está guardada localmente.
           </div>
         </div>
       )}

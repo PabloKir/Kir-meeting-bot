@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 import type {
   Analysis,
   AgentQuestion,
@@ -130,7 +131,7 @@ const SAMPLE_SPEAKER_MAP: SpeakerMap = {
   D: "p4", // Hernando
 };
 
-export const useStore = create<AppState>((set, get) => ({
+export const useStore = create<AppState>()(persist((set, get) => ({
   stage: "setup",
   meeting: { ...emptyMeeting },
   participants: [],
@@ -209,6 +210,35 @@ export const useStore = create<AppState>((set, get) => ({
       questions: [],
       done: { ...emptyDone },
     }),
+}), {
+  // Persistimos el estado en localStorage para que un refresh o un error
+  // intermitente (504 en analisis, perdida de conexion) NO pierda el avance.
+  // Solo el audioBlob/audioUrl se quedan fuera (no son serializables JSON y
+  // si el usuario refresca puede volver a subir el archivo).
+  name: "kir-meeting-agent.state.v1",
+  storage: createJSONStorage(() => localStorage),
+  partialize: (state) => ({
+    stage: state.stage,
+    meeting: state.meeting,
+    participants: state.participants,
+    analysis: state.analysis,
+    questions: state.questions,
+    done: state.done,
+    capture: {
+      // Mantenemos transcripcion y mapeo, descartamos blob/url (no serializan)
+      // y reseteamos flags efimeros (recording, uploading, jobs en curso).
+      status: state.capture.utterances.length > 0 ? "transcribed" : "idle",
+      startTime: null,
+      elapsed: 0,
+      audioUrl: null,
+      audioBlob: null,
+      utterances: state.capture.utterances,
+      speakerMap: state.capture.speakerMap,
+      manualNotes: state.capture.manualNotes,
+      transcribeJobId: null,
+      errorMsg: null,
+    } as Capture,
+  }),
 }));
 
 export { SAMPLE_PARTICIPANTS, SAMPLE_MEETING, SAMPLE_UTTERANCES, SAMPLE_SPEAKER_MAP };

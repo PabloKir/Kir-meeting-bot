@@ -17,7 +17,9 @@ import type {
 } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// 300s = maximo en Vercel Pro (default Hobby es 60s). Reuniones largas con
+// transcripts grandes pueden tardar 1-3 minutos en Claude Sonnet.
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
