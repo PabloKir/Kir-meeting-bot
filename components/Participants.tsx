@@ -83,7 +83,7 @@ export function ParticipantsStage({
       />
 
       <BracketedCard>
-        <CardHead title={`Lista de asistentes (${participants.length})`} id="FOG-MA / 03" />
+        <CardHead title={`Lista de asistentes (${participants.length})`} id="FOG-11 / 03" />
 
         <div className="grid grid-cols-[40px_1fr_200px_140px_90px_40px] gap-3 font-display uppercase text-kir-gris border-b border-kir-negro pb-2 mb-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>
           <div />

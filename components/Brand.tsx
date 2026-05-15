@@ -1,5 +1,5 @@
 // =============================================================================
-// KIR Construcciones — Brand helpers
+// KIR S.A. — Brand helpers (ex KIR Construcciones S.R.L.)
 // =============================================================================
 // Componentes de marca que se usan en toda la app.
 // Logo, chevron, eyebrow, según el Manual de Identidad de KIR.
@@ -16,8 +16,8 @@ export function LogoKIR({ size = 44 }: { size?: number }) {
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src="/kir-logo.png"
-      alt="KIR Construcciones"
-      title="KIR Construcciones"
+      alt="KIR S.A."
+      title="KIR S.A."
       width={Math.round(size * ratio)}
       height={size}
       style={{ display: "block", height: size, width: "auto" }}

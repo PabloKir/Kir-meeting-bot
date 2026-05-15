@@ -1,6 +1,6 @@
 # KIR Meeting Agent
 
-> Asistente de reuniones para **KIR Construcciones S.R.L.** — Transcripción automática con diarización (identificación de hablantes) y análisis estructurado por IA. Genera minutas en formato FOG-11.
+> Asistente de reuniones para **KIR S.A.** — Transcripción automática con diarización (identificación de hablantes) y análisis estructurado por IA. Genera minutas en formato FOG-11 Rev.2 exportables a PDF.
 
 ```
 »» Pasión por crear
@@ -15,7 +15,7 @@
 3. **Mapeás** las voces detectadas (A, B, C) a participantes reales con dos clicks (mostrando muestras de lo que dijo cada uno)
 4. **Analiza** la transcripción atribuida con Claude Sonnet 4 → resumen ejecutivo, decisiones, tareas con responsable inferido del contexto, riesgos
 5. **Pregunta** al usuario para resolver ambigüedades (responsable o plazo sin definir, riesgos a escalar) vía multiple-choice
-6. **Genera la minuta** en formato KIR (FOG-MA) lista para distribuir — copy, download .html o .txt
+6. **Genera la minuta** en formato KIR FOG-11 Rev.2 lista para distribuir — copy, exportar a PDF (con logo oficial) o .txt
 
 ---
 
@@ -101,7 +101,7 @@ B.02  Mapear voces    Speaker A,B,C → Pablo, Diego, Ximena (con muestras)
 B.03  Análisis IA     Claude estructura todo en JSON
 B.04  Preguntas       Multiple choice para ambigüedades
 C.01  Cierre          Validar tareas (sin resp/plazo bloquean)
-C.02  Minuta          Documento FOG-MA editable, copy / download
+C.02  Minuta          Documento FOG-11 Rev.2 editable, copy / exportar PDF
 D.01  Mejoras         Roadmap de evolución
 ```
 
@@ -182,5 +182,5 @@ La stage **D.01 Mejoras** lista 10 áreas de evolución concretas: streaming en 
 
 ## Soporte / contacto
 
-Proyecto interno KIR Construcciones S.R.L.
+Proyecto interno KIR S.A.
 ISO 9001 · Pasión por crear.

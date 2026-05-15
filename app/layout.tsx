@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "KIR Meeting Agent — Asistente de reuniones",
   description:
-    "KIR Construcciones · Asistente de reuniones con diarización automática y análisis por Claude. Pasión por crear.",
+    "KIR S.A. · Asistente de reuniones con diarización automática y análisis por Claude. Pasión por crear.",
 };
 
 export default function RootLayout({

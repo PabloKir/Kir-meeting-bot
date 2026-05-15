@@ -133,7 +133,7 @@ function buildPrompt(args: {
   transcript: string;
   manualNotes: string;
 }): string {
-  return `Sos el agente analista de minutas de KIR Construcciones (Argentina, empresa de obras civiles e industriales, ISO 9001). Estás analizando una reunión real para producir una minuta institucional sobria, en formato similar a FOG-11 Rev.2 (formato corporativo de KIR).
+  return `Sos el agente analista de minutas de KIR S.A. (Argentina, empresa de obras civiles e industriales, ISO 9001). Estás analizando una reunión real para producir una minuta institucional sobria, en formato similar a FOG-11 Rev.2 (formato corporativo de KIR).
 
 # Reunión
 - Nombre: ${args.meetingName}

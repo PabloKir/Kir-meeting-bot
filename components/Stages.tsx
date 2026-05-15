@@ -175,7 +175,7 @@ export function ClosureStage({ onBack, onNext }: { onBack: () => void; onNext: (
       )}
 
       <BracketedCard>
-        <CardHead title="Tareas asignadas — validar" id="FOG-MA / 04" />
+        <CardHead title="Tareas asignadas — validar" id="FOG-11 / 04" />
 
         <div className="grid grid-cols-[30px_1fr_180px_140px_100px_40px] gap-2 font-display uppercase text-kir-gris border-b border-kir-negro pb-2 mb-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>
           <div>#</div>
@@ -298,11 +298,11 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
     const A = analysis;
     const lines: string[] = [];
     lines.push("═══════════════════════════════════════════════════════════════");
-    lines.push("  MINUTA DE REUNIÓN — KIR CONSTRUCCIONES S.R.L.");
+    lines.push("  MINUTA DE REUNIÓN — KIR S.A.");
     lines.push("═══════════════════════════════════════════════════════════════");
     lines.push("");
     lines.push(meeting.name.toUpperCase());
-    lines.push(`${fmtDate(meeting.date)} · ${meeting.time} hs · FOG-MA Rev.0`);
+    lines.push(`${fmtDate(meeting.date)} · ${meeting.time} hs · Formulario FOG-11 Rev.2`);
     lines.push("");
     lines.push("── 01 · DATOS DE LA REUNIÓN ──────────────────────────────────");
     lines.push(`Tipo:       ${meeting.type}`);
@@ -386,7 +386,7 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
       <SectionHead
         eyebrow="Stage C.02 · Documento final"
         title="Minuta lista para distribuir"
-        subtitle="Formato KIR estilo FOG-11. Editable in-place. Copia al portapapeles, descarga como .html o .txt."
+        subtitle="Formato KIR estilo FOG-11 Rev.2. Editable in-place. Copia al portapapeles, descarga como .pdf o .txt."
         meta={{ num: "C.02", label: "FOG · Minuta" }}
       />
 
@@ -396,7 +396,7 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
           <ToolBtn onClick={() => setEditing(!editing)}>{editing ? "Bloquear" : "Editar"}</ToolBtn>
           <ToolBtn onClick={copyToClipboard}>Copiar</ToolBtn>
           <ToolBtn onClick={() => downloadFile(minuteAsText(), "txt", "text/plain")}>.txt</ToolBtn>
-          <ToolBtn onClick={() => downloadFile(buildMinuteHTML(meeting, participants, analysis), "html", "text/html")}>.html</ToolBtn>
+          <ToolBtn onClick={() => openPrintWindow(buildFog11HTML(meeting, participants, analysis))}>Exportar PDF</ToolBtn>
         </div>
       </div>
 
@@ -409,7 +409,7 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
         <span className="absolute bottom-4 right-6 font-display font-black text-2xl text-kir-teal" style={{ letterSpacing: "-0.12em" }}>»»</span>
         <h2>{meeting.name || "Minuta de reunión"}</h2>
         <div className="text-kir-gris font-mono text-[11px] mb-8">
-          KIR Construcciones S.R.L. · {fmtDate(meeting.date)} · {meeting.time} · FOG-MA Rev.0
+          KIR S.A. · {fmtDate(meeting.date)} · {meeting.time} · Formulario FOG-11 Rev.2
         </div>
 
         <h3><span className="num">01</span>Datos de la reunión</h3>
@@ -499,25 +499,263 @@ function ToolBtn({ onClick, children }: { onClick: () => void; children: React.R
   );
 }
 
-function buildMinuteHTML(meeting: any, participants: any[], analysis: any): string {
-  const fmtDate = (iso: string) => { if (!iso) return "—"; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; };
+// =============================================================================
+// PDF export — formato FOG-11 Rev.2 oficial de KIR S.A.
+// =============================================================================
+// Genera un HTML standalone con el layout de FOG-11 y lo abre en una nueva
+// ventana auto-disparando window.print(). El usuario elige "Guardar como PDF"
+// en el dialogo del navegador (Chrome/Edge/Firefox lo soportan nativo). Asi
+// evitamos sumar dependencias pesadas como jsPDF + html2canvas.
+// =============================================================================
+
+function escapeHtml(s: string | null | undefined): string {
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function openPrintWindow(html: string) {
+  const w = window.open("", "_blank", "width=900,height=1000");
+  if (!w) {
+    alert("El navegador bloqueo el pop-up. Permiti pop-ups para esta pagina y volve a intentar.");
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  // Esperamos a que el logo cargue antes de disparar el dialogo de impresion
+  const trigger = () => {
+    try { w.focus(); w.print(); } catch (e) { console.error(e); }
+  };
+  const img = w.document.querySelector("img");
+  if (img && !img.complete) {
+    img.addEventListener("load", () => setTimeout(trigger, 200));
+    img.addEventListener("error", () => setTimeout(trigger, 200));
+  } else {
+    setTimeout(trigger, 400);
+  }
+}
+
+function buildFog11HTML(meeting: any, participants: any[], analysis: any): string {
+  const fmtDate = (iso: string) => {
+    if (!iso) return "—";
+    const [y, m, d] = iso.split("-");
+    return `${d}-${m}-${y}`;
+  };
   const asistentes = participants.filter((p) => p.attended);
-  return `<!doctype html><html lang="es"><head><meta charset="UTF-8"><title>${meeting.name} — Minuta KIR</title>
-<style>body{font-family:Roboto,sans-serif;color:#222;max-width:800px;margin:40px auto;padding:0 24px;font-size:14px;line-height:1.5}
-h2{font-family:Archivo,sans-serif;font-weight:900;text-transform:uppercase;letter-spacing:-0.02em;font-size:28px}
-h3{font-family:Archivo,sans-serif;font-weight:900;text-transform:uppercase;font-size:14px;border-bottom:1px solid #222;padding-bottom:6px;margin-top:32px}
-table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}
-th{background:#f2f2f2;padding:6px;text-align:left;border:1px solid #ddd;font-family:Archivo,sans-serif;text-transform:uppercase;font-size:10px;letter-spacing:0.1em}
-td{padding:6px;border:1px solid #ddd;vertical-align:top}
-.num{color:#006B68;font-family:monospace;font-size:11px;margin-right:8px}</style></head><body>
-<h2>${meeting.name}</h2>
-<p style="color:#999;font-family:monospace;font-size:11px">KIR Construcciones S.R.L. · ${fmtDate(meeting.date)} · ${meeting.time}</p>
-<h3><span class="num">01</span>Asistentes</h3><p>${asistentes.map((p) => p.name + " (" + p.initials + ")").join(" · ")}</p>
-<h3><span class="num">02</span>Resumen ejecutivo</h3><p>${analysis.executiveSummary || "—"}</p>
-<h3><span class="num">03</span>Tareas</h3><table><thead><tr><th>#</th><th>Tarea</th><th>Resp.</th><th>Plazo</th></tr></thead><tbody>
-${analysis.tasks.map((t: any, i: number) => `<tr><td>${i + 1}</td><td>${t.text}</td><td><b>${t.responsible || "Pendiente"}</b></td><td>${t.deadline || "Por definir"}</td></tr>`).join("")}
-</tbody></table>
-</body></html>`;
+  const conCopia = participants.filter((p) => !p.attended);
+  const facilitador = participants.find((p) => p.role === "Facilitador");
+  const logoUrl = (typeof window !== "undefined" ? window.location.origin : "") + "/kir-logo.png";
+  const E = escapeHtml;
+
+  const accionesRows = analysis.tasks.map((t: any, i: number) => {
+    // Buscar iniciales del responsable
+    const resp = participants.find((p: any) => p.name === t.responsible);
+    const initials = resp?.initials || (t.responsible ? t.responsible.split(" ").map((w: string) => w[0]).join("").toUpperCase() : "—");
+    return `<tr>
+      <td class="num-cell">${String(i + 1).padStart(2, "0")}.-</td>
+      <td>${E(t.text)}${t.priority === "Alta" ? ' <span class="prio-alta">[PRIORIDAD ALTA]</span>' : ""}</td>
+      <td class="r-cell">${E(initials)}</td>
+      <td class="plazo-cell">${E(t.deadline) || "Inmediato"}</td>
+    </tr>`;
+  }).join("");
+
+  const decisionsList = analysis.decisions.length === 0
+    ? '<p class="empty">— Sin decisiones formales registradas —</p>'
+    : `<ol>${analysis.decisions.map((d: string) => `<li>${E(d)}</li>`).join("")}</ol>`;
+
+  const risksList = analysis.risks.length === 0
+    ? '<p class="empty">— Sin riesgos registrados —</p>'
+    : `<ul class="risks-list">${analysis.risks.map((r: any) => `<li><b>[${E(r.level).toUpperCase()}]</b> ${E(r.text)}${r.mitigation ? ` <i>Mitigación: ${E(r.mitigation)}</i>` : ""}</li>`).join("")}</ul>`;
+
+  const openQList = analysis.openQuestions.length === 0
+    ? '<p class="empty">— Sin preguntas pendientes —</p>'
+    : `<ol>${analysis.openQuestions.map((q: string) => `<li>${E(q)}</li>`).join("")}</ol>`;
+
+  const nextStepsList = analysis.nextSteps.length === 0
+    ? '<p class="empty">— Sin próximos pasos definidos —</p>'
+    : `<ol>${analysis.nextSteps.map((s: string) => `<li>${E(s)}</li>`).join("")}</ol>`;
+
+  return `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Minuta — ${E(meeting.name)} — KIR S.A.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800;900&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Roboto', 'Arial', sans-serif; color: #222; font-size: 11px; line-height: 1.45; margin: 0; padding: 0; }
+  .topbar { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; border-bottom: 2px solid #222; padding-bottom: 10px; margin-bottom: 8px; }
+  .topbar img { height: 56px; width: auto; display: block; }
+  .topbar .formulario { font-family: 'Archivo', sans-serif; font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; text-align: right; line-height: 1.4; }
+  .topbar .formulario b { display: block; font-weight: 700; color: #006B68; font-size: 11px; }
+  .title-bar { background: #222; color: #fff; padding: 8px 12px; display: grid; grid-template-columns: 1fr auto; align-items: baseline; margin-bottom: 0; }
+  .title-bar h1 { font-family: 'Archivo', sans-serif; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; font-size: 16px; margin: 0; }
+  .title-bar .meta { font-family: 'Archivo', sans-serif; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; }
+  table.cabecera { width: 100%; border-collapse: collapse; border: 1px solid #222; margin-bottom: 0; }
+  table.cabecera td { border: 1px solid #222; padding: 6px 8px; vertical-align: top; }
+  table.cabecera .label { background: #f2f2f2; font-family: 'Archivo', sans-serif; font-weight: 700; text-transform: uppercase; font-size: 9px; letter-spacing: 0.14em; width: 18%; }
+  table.asistentes { width: 100%; border-collapse: collapse; border: 1px solid #222; border-top: none; margin-bottom: 0; }
+  table.asistentes th { background: #222; color: #fff; padding: 6px 10px; text-align: left; font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; border-right: 1px solid #444; }
+  table.asistentes th:last-child { border-right: 1px solid #222; }
+  table.asistentes td { border: 1px solid #222; padding: 6px 10px; vertical-align: top; width: 50%; }
+  table.asistentes td .person { display: block; margin-bottom: 3px; }
+  table.asistentes td .check { color: #006B68; font-weight: 700; margin-right: 4px; }
+  .nota { border: 1px solid #222; border-top: none; padding: 8px 12px; font-size: 9.5px; background: #fafafa; line-height: 1.5; }
+  .meta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid #222; border-top: none; }
+  .meta-row > div { padding: 6px 12px; font-family: 'Archivo', sans-serif; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .meta-row > div:first-child { border-right: 1px solid #222; }
+  .meta-row b { font-weight: 700; color: #006B68; margin-right: 6px; }
+  section.body-section { margin-top: 22px; page-break-inside: avoid; }
+  section.body-section h2 { font-family: 'Archivo', sans-serif; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; font-size: 12px; background: #222; color: #fff; padding: 5px 12px; margin: 0 0 0 0; display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: baseline; }
+  section.body-section h2 .sec-num { color: #98989A; font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 10px; }
+  section.body-section .content { border: 1px solid #222; border-top: none; padding: 10px 14px; }
+  section.body-section p.empty { color: #98989A; font-style: italic; margin: 4px 0; }
+  table.acciones { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+  table.acciones th { background: #f2f2f2; padding: 5px 8px; text-align: left; border: 1px solid #ccc; font-family: 'Archivo', sans-serif; text-transform: uppercase; font-size: 9px; letter-spacing: 0.14em; }
+  table.acciones th.r-th { width: 8%; text-align: center; }
+  table.acciones th.plazo-th { width: 16%; }
+  table.acciones th.num-th { width: 7%; }
+  table.acciones td { padding: 6px 8px; border: 1px solid #ddd; vertical-align: top; }
+  table.acciones td.num-cell { font-family: 'JetBrains Mono', monospace; color: #006B68; font-weight: 500; text-align: center; }
+  table.acciones td.r-cell { text-align: center; font-weight: 700; color: #222; }
+  table.acciones td.plazo-cell { font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+  .prio-alta { color: #B23A2C; font-weight: 700; font-size: 9px; }
+  ol, ul { margin: 4px 0 4px 0; padding-left: 18px; }
+  ol li, ul li { margin-bottom: 4px; line-height: 1.5; }
+  .risks-list li { padding: 3px 0; }
+  .resumen-text { font-size: 11px; line-height: 1.6; text-align: justify; margin: 4px 0; }
+  .footer { margin-top: 32px; padding-top: 10px; border-top: 1px solid #222; display: grid; grid-template-columns: 1fr auto; font-size: 9px; color: #666; font-family: 'Archivo', sans-serif; text-transform: uppercase; letter-spacing: 0.14em; }
+  .footer .right { text-align: right; }
+  .footer b { color: #006B68; }
+  .print-controls { position: fixed; top: 12px; right: 12px; z-index: 9999; background: #222; color: #fff; padding: 10px 14px; font-family: 'Archivo', sans-serif; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; border: 1px solid #006B68; }
+  .print-controls button { background: #006B68; color: #fff; border: none; padding: 6px 12px; font-family: inherit; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; cursor: pointer; margin-left: 10px; }
+  @media print {
+    .print-controls { display: none !important; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+  <div class="print-controls">
+    » Si el dialogo no aparecio, hace
+    <button onclick="window.print()">Imprimir / Guardar PDF</button>
+  </div>
+
+  <div class="topbar">
+    <img src="${logoUrl}" alt="KIR S.A." />
+    <div class="formulario">
+      <b>Formulario: FOG-11 Rev.2</b>
+      KIR S.A. — Pasión por crear
+    </div>
+  </div>
+
+  <div class="title-bar">
+    <h1>Minuta de reunión</h1>
+    <div class="meta">Minuta · Versión: 0</div>
+  </div>
+
+  <table class="cabecera">
+    <tr>
+      <td class="label">Fecha</td>
+      <td>${fmtDate(meeting.date)} — ${E(meeting.time)} hs</td>
+      <td class="label">Obra / Sector</td>
+      <td>${E(meeting.area) || "—"}</td>
+    </tr>
+    <tr>
+      <td class="label">Objeto de la reunión</td>
+      <td colspan="3">${E(meeting.objective) || E(meeting.name)}</td>
+    </tr>
+    <tr>
+      <td class="label">Tipo</td>
+      <td>${E(meeting.type)}</td>
+      <td class="label">Duración est.</td>
+      <td>${E(meeting.expectedDuration)} min</td>
+    </tr>
+  </table>
+
+  <table class="asistentes">
+    <thead>
+      <tr>
+        <th>Asistentes (${asistentes.length})</th>
+        <th>Con copia (${conCopia.length})</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>${asistentes.length === 0 ? "—" : asistentes.map((p: any) => `<span class="person"><span class="check">☒</span>${E(p.name)} (${E(p.initials)})</span>`).join("")}</td>
+        <td>${conCopia.length === 0 ? "—" : conCopia.map((p: any) => `<span class="person"><span class="check">☒</span>${E(p.name)} (${E(p.initials)})</span>`).join("")}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="meta-row">
+    <div><b>Minuta elaborada por:</b> ${E(facilitador?.name) || "—"}</div>
+    <div><b>Próxima reunión:</b> a definir</div>
+  </div>
+
+  <div class="nota">
+    <b>NOTA:</b> Si cualquiera de los ítems aquí desarrollados estuviere incompleto o fuere incorrecto, por favor notificar al emisor de la minuta. El no hacerlo dentro de los cinco días de emitida o antes de la próxima reunión (lo que ocurra primero) constituye aceptación de la información contenida y como ésta es presentada.
+  </div>
+
+  ${analysis.executiveSummary ? `
+  <section class="body-section">
+    <h2><span class="sec-num">01</span>Resumen ejecutivo</h2>
+    <div class="content"><p class="resumen-text">${E(analysis.executiveSummary)}</p></div>
+  </section>` : ""}
+
+  <section class="body-section">
+    <h2><span class="sec-num">02</span>Acciones — Tareas, responsables, plazos</h2>
+    <div class="content">
+      ${analysis.tasks.length === 0 ? '<p class="empty">— Sin acciones registradas —</p>' : `
+      <table class="acciones">
+        <thead>
+          <tr>
+            <th class="num-th">N°</th>
+            <th>Descripción de la acción</th>
+            <th class="r-th">R</th>
+            <th class="plazo-th">Plazo</th>
+          </tr>
+        </thead>
+        <tbody>${accionesRows}</tbody>
+      </table>`}
+    </div>
+  </section>
+
+  <section class="body-section">
+    <h2><span class="sec-num">03</span>Decisiones tomadas</h2>
+    <div class="content">${decisionsList}</div>
+  </section>
+
+  <section class="body-section">
+    <h2><span class="sec-num">04</span>Riesgos y bloqueos</h2>
+    <div class="content">${risksList}</div>
+  </section>
+
+  <section class="body-section">
+    <h2><span class="sec-num">05</span>Preguntas abiertas</h2>
+    <div class="content">${openQList}</div>
+  </section>
+
+  <section class="body-section">
+    <h2><span class="sec-num">06</span>Próximos pasos</h2>
+    <div class="content">${nextStepsList}</div>
+  </section>
+
+  <div class="footer">
+    <div><b>R</b>: Responsable de ejecutar la acción. &nbsp; · &nbsp; Generado por KIR Meeting Agent + Claude</div>
+    <div class="right">FOG-11 Rev.2 — Minuta Reunión de Gerencia</div>
+  </div>
+
+</body>
+</html>`;
 }
 
 // =============================================================================

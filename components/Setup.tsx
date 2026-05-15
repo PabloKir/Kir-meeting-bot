@@ -37,7 +37,7 @@ export function SetupStage({ onNext }: { onNext: () => void }) {
       />
 
       <BracketedCard>
-        <CardHead title="Cabecera · Identificación" id="FOG-MA / 01" />
+        <CardHead title="Cabecera · Identificación" id="FOG-11 / 01" />
 
         <Field label="Nombre de la reunión" required>
           <input
@@ -80,7 +80,7 @@ export function SetupStage({ onNext }: { onNext: () => void }) {
           />
         </Field>
 
-        <CardHead title="Tipo y formalidad" id="FOG-MA / 02" />
+        <CardHead title="Tipo y formalidad" id="FOG-11 / 02" />
 
         <Field label="Tipo de reunión">
           <Chips values={TIPOS} current={[meeting.type]} onToggle={(v) => setMeeting({ type: v })} />

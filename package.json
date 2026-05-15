@@ -1,7 +1,7 @@
 {
   "name": "kir-meeting-agent",
   "version": "1.0.0",
-  "description": "KIR Construcciones · Meeting Agent — Asistente de reuniones con diarización automática y análisis por Claude",
+  "description": "KIR S.A. · Meeting Agent — Asistente de reuniones con diarización automática y análisis por Claude",
   "private": true,
   "scripts": {
     "dev": "next dev",

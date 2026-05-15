@@ -1,0 +1,21 @@
+feat: exportar PDF en formato FOG-11 Rev.2 + razon social KIR S.A.
+
+- Nuevo boton "Exportar PDF" en stage Minuta. Abre una ventana
+  print-optimized con el layout oficial FOG-11 Rev.2 y dispara el
+  dialogo de impresion; el usuario elige "Guardar como PDF" en el
+  navegador. Sin agregar dependencias pesadas.
+
+- Layout FOG-11: logo oficial KIR arriba a la izquierda, formulario
+  arriba a la derecha, cabecera con FECHA / OBRA-SECTOR / OBJETO,
+  tabla ASISTENTES/CON COPIA con checkmarks, NOTA de aceptacion,
+  tabla de ACCIONES con columnas N/Descripcion/R/PLAZO, secciones
+  para resumen, decisiones, riesgos, preguntas abiertas y proximos
+  pasos. Footer con "R: responsable de ejecutar la accion".
+
+- Actualiza la razon social en toda la app: KIR Construcciones SRL
+  pasa a KIR S.A. (en metadata, prompt de Claude, minuta, header
+  HTML, README, etc).
+
+- Unifica codigos internos FOG-MA / 01..05 a FOG-11 / 01..05.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

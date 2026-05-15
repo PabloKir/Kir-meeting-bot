@@ -60,7 +60,7 @@ export function SpeakersStage({ onBack, onNext }: { onBack: () => void; onNext: 
       )}
 
       <BracketedCard>
-        <CardHead title="Voces detectadas" id="FOG-MA / 05" />
+        <CardHead title="Voces detectadas" id="FOG-11 / 05" />
 
         <div className="space-y-5">
           {speakers.map((speaker) => {
