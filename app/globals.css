@@ -1,0 +1,212 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =============================================================================
+   KIR MEETING AGENT — Global styles
+   Basado en el Manual de Identidad Corporativa de KIR Construcciones.
+   ========================================================================== */
+
+:root {
+  --negro: #222222;
+  --gris: #98989A;
+  --gris-claro: #F2F2F2;
+  --gris-papel: #FAFAFA;
+  --gris-border: #E2E2E2;
+  --blanco: #FFFFFF;
+  --teal: #006B68;
+  --teal-dark: #004F4D;
+  --teal-soft: #E6F0EF;
+  --rojo: #B23A2C;
+  --amber: #B8860B;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  background: var(--gris-papel);
+  color: var(--negro);
+  font-family: 'Roboto', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Form elements ---- */
+.kir-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--negro);
+  background: var(--blanco);
+  font-size: 14px;
+  font-family: 'Roboto', sans-serif;
+  outline: none;
+  border-radius: 0;
+}
+.kir-input:focus {
+  border-color: var(--teal);
+  box-shadow: inset 0 0 0 1px var(--teal);
+}
+
+.kir-label {
+  display: block;
+  font-family: 'Archivo', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  color: var(--negro);
+}
+
+/* ---- Chips (multi-select) ---- */
+.kir-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--negro);
+  background: var(--blanco);
+  cursor: pointer;
+  font-family: 'Archivo', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: all 0.12s;
+}
+.kir-chip:hover, .kir-chip.active {
+  background: var(--negro);
+  color: var(--blanco);
+}
+.kir-chip .chev {
+  font-weight: 900;
+  letter-spacing: -0.1em;
+  color: var(--teal);
+}
+
+/* ---- Tables ---- */
+.kir-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.kir-table th {
+  background: var(--negro);
+  color: var(--blanco);
+  font-family: 'Archivo', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 10px 12px;
+  text-align: left;
+}
+.kir-table td {
+  padding: 10px 12px;
+  border: 1px solid var(--gris-border);
+  background: var(--blanco);
+  vertical-align: top;
+}
+
+/* ---- Technical grid background ---- */
+.kir-grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(34,34,34,0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(34,34,34,0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* ---- Animations ---- */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.kir-pulse { animation: pulse-dot 1.4s infinite; }
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.kir-blink { animation: blink 1s infinite; }
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--gris-papel); }
+::-webkit-scrollbar-thumb { background: var(--gris); }
+::-webkit-scrollbar-thumb:hover { background: var(--negro); }
+
+/* ---- Minute document styles ---- */
+.minute-doc h2 {
+  font-family: 'Archivo', sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: -0.025em;
+  font-size: 28px;
+  margin-bottom: 4px;
+}
+.minute-doc h3 {
+  font-family: 'Archivo', sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  font-size: 14px;
+  border-bottom: 1px solid var(--negro);
+  padding-bottom: 6px;
+  margin: 32px 0 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.minute-doc h3 .num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--teal);
+  font-weight: 400;
+}
+.minute-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 8px 0 16px;
+}
+.minute-doc table th {
+  background: var(--gris-papel);
+  padding: 6px 10px;
+  text-align: left;
+  border: 1px solid var(--gris-border);
+  font-family: 'Archivo', sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.minute-doc table td {
+  padding: 6px 10px;
+  border: 1px solid var(--gris-border);
+  vertical-align: top;
+}
+.minute-doc .meta-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px dotted var(--gris-border);
+}
+.minute-doc .meta-row .k {
+  font-family: 'Archivo', sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gris);
+  padding-top: 2px;
+}
+.minute-doc ul {
+  margin-left: 0;
+  padding-left: 18px;
+}
+.minute-doc ul li {
+  margin-bottom: 4px;
+  font-size: 13px;
+}
