@@ -68,10 +68,64 @@ export function getMeeting(id: string): StoredMeeting | null {
 
 export function deleteMeeting(id: string): void {
   writeAll(readAll().filter((m) => m.id !== id));
+  // Best-effort: borrar tambien del servidor compartido
+  void fetch(`/api/history/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(
+    () => {}
+  );
 }
 
 export function clearAllMeetings(): void {
   writeAll([]);
+}
+
+// =============================================================================
+// Sync con el servidor (Vercel KV). El servidor es la fuente compartida entre
+// dominios/dispositivos; localStorage es cache local + modo offline.
+// =============================================================================
+
+// Empuja una minuta al servidor (fire-and-forget; no bloquea la UI).
+function pushMeetingToServer(m: StoredMeeting): void {
+  void fetch("/api/history", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ meeting: m }),
+  }).catch(() => {});
+}
+
+// Trae el historial del servidor, lo mergea en localStorage (por id, gana el
+// savedAt mas reciente) y devuelve la lista combinada ya ordenada.
+// Si el server no tiene KV configurado o falla, devuelve solo lo local.
+export async function syncFromServer(): Promise<StoredMeeting[]> {
+  try {
+    const res = await fetch("/api/history", { cache: "no-store" });
+    if (!res.ok) return listMeetings();
+    const data = await res.json();
+    if (!data?.configured || !Array.isArray(data.meetings)) {
+      return listMeetings();
+    }
+    const local = readAll();
+    const byId = new Map<string, StoredMeeting>();
+    local.forEach((m) => byId.set(m.id, m));
+    for (const m of data.meetings as StoredMeeting[]) {
+      if (!m?.id) continue;
+      const existing = byId.get(m.id);
+      if (!existing || (m.savedAt || 0) >= (existing.savedAt || 0)) {
+        byId.set(m.id, m);
+      }
+    }
+    const merged = Array.from(byId.values());
+    writeAll(merged);
+
+    // Empujar al server cualquier minuta local que el server no tenga aun
+    const serverIds = new Set((data.meetings as StoredMeeting[]).map((m) => m.id));
+    for (const m of local) {
+      if (!serverIds.has(m.id)) pushMeetingToServer(m);
+    }
+
+    return merged.sort((a, b) => b.savedAt - a.savedAt);
+  } catch {
+    return listMeetings();
+  }
 }
 
 // Guarda o actualiza una minuta. Usa un fingerprint (nombre + fecha + hora) para
@@ -89,11 +143,13 @@ export function saveOrUpdateMeeting(
     const updated: StoredMeeting = { ...all[idx], ...data, savedAt: now };
     all[idx] = updated;
     writeAll(all);
+    pushMeetingToServer(updated);
     return updated;
   }
   const created: StoredMeeting = { id: genId(), savedAt: now, ...data };
   all.push(created);
   writeAll(all);
+  pushMeetingToServer(created);
   return created;
 }
 

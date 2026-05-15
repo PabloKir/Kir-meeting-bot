@@ -11,6 +11,7 @@ import {
   deleteMeeting,
   exportHistoryJSON,
   importHistoryJSON,
+  syncFromServer,
   type StoredMeeting,
 } from "@/lib/history";
 
@@ -801,6 +802,7 @@ export function HistoryStage({
 
   const [meetings, setMeetings] = useState<StoredMeeting[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -809,15 +811,23 @@ export function HistoryStage({
     setTimeout(() => setToast(null), 3500);
   };
 
-  // localStorage solo existe en el browser; cargamos en useEffect.
+  // 1) Pintamos lo local al instante. 2) Sincronizamos con el servidor
+  // compartido (Vercel KV) y mergeamos. Si no hay KV, queda solo lo local.
   useEffect(() => {
     setMeetings(listMeetings());
     setLoaded(true);
     markDone("history");
+    setSyncing(true);
+    syncFromServer()
+      .then((merged) => setMeetings(merged))
+      .finally(() => setSyncing(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const refresh = () => setMeetings(listMeetings());
+  const refresh = () => {
+    setMeetings(listMeetings());
+    syncFromServer().then((merged) => setMeetings(merged)).catch(() => {});
+  };
 
   const handleExportBackup = () => {
     const json = exportHistoryJSON();
@@ -892,8 +902,8 @@ export function HistoryStage({
       <SectionHead
         eyebrow="Stage D.01 · Histórico"
         title="Reuniones guardadas"
-        subtitle="Las minutas se guardan automáticamente en este browser cuando llegás a la pantalla C.02 Minuta. Podés volver a cargarlas, exportar el PDF o eliminarlas. Almacenamiento local — no se sincroniza entre dispositivos."
-        meta={{ num: "D.01", label: `${meetings.length} minutas` }}
+        subtitle="Las minutas se guardan automáticamente al llegar a la pantalla C.02 Minuta. Se sincronizan con el servidor compartido: se ven igual desde cualquier dominio, navegador o dispositivo. localStorage funciona como cache offline."
+        meta={{ num: "D.01", label: syncing ? "Sincronizando…" : `${meetings.length} minutas` }}
       />
 
       {loaded && meetings.length === 0 && (
