@@ -89,6 +89,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         audio_url: uploadUrl,
+        speech_model: "universal-2",
         speaker_labels: true,
         language_code: language,
         punctuate: true,
