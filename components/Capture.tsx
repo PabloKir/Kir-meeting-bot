@@ -42,6 +42,7 @@ export function CaptureStage({ onBack, onNext }: { onBack: () => void; onNext: (
 
   const [audioLevel, setAudioLevel] = useState(0);
   const [elapsed, setElapsed] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -218,24 +219,73 @@ export function CaptureStage({ onBack, onNext }: { onBack: () => void; onNext: (
     setAudioLevel(0);
   }
 
+  // Upload del audio directo a AssemblyAI con barra de progreso (XHR para
+  // que upload.onprogress funcione — fetch no expone progreso de upload).
+  function uploadDirectToAssemblyAI(blob: Blob, apiKey: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "https://api.assemblyai.com/v2/upload");
+      xhr.setRequestHeader("authorization", apiKey);
+      xhr.setRequestHeader("content-type", "application/octet-stream");
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          setUploadProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (!data.upload_url) {
+              reject(new Error("AssemblyAI no devolvio upload_url"));
+              return;
+            }
+            resolve(data.upload_url as string);
+          } catch (e: any) {
+            reject(new Error("Respuesta invalida de AssemblyAI: " + e.message));
+          }
+        } else {
+          reject(new Error(`AssemblyAI ${xhr.status}: ${xhr.responseText || xhr.statusText}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Error de red subiendo a AssemblyAI"));
+      xhr.ontimeout = () => reject(new Error("Timeout subiendo a AssemblyAI"));
+      xhr.send(blob);
+    });
+  }
+
   async function transcribe() {
     if (!capture.audioBlob) {
       alert("Primero grabá el audio");
       return;
     }
     setCapture({ status: "uploading", errorMsg: null, utterances: [] });
+    setUploadProgress(0);
 
     try {
-      const form = new FormData();
-      const ext = capture.audioBlob.type.includes("mp4") ? "m4a"
-                : capture.audioBlob.type.includes("ogg") ? "ogg" : "webm";
-      form.append("audio", capture.audioBlob, `reunion.${ext}`);
-      // Cantidad esperada de speakers = participantes asistentes (mejora la diarización)
-      const exp = participants.filter((p) => p.attended).length;
-      if (exp > 0) form.append("speakers_expected", String(exp));
-      form.append("language", "es");
+      // 1) Obtener API key de AssemblyAI desde el server (origin checked)
+      const keyRes = await fetch("/api/aai-key");
+      if (!keyRes.ok) {
+        const err = await keyRes.json().catch(() => ({}));
+        throw new Error(err.error || "No se pudo obtener token de AssemblyAI");
+      }
+      const { key } = await keyRes.json();
+      if (!key) throw new Error("API key de AssemblyAI vacia");
 
-      const res = await fetch("/api/transcribe", { method: "POST", body: form });
+      // 2) Subir audio directo a AssemblyAI (bypass del limite 4.5 MB de Vercel)
+      const uploadUrl = await uploadDirectToAssemblyAI(capture.audioBlob, key);
+
+      // 3) Pedirle al server que cree el transcript (solo JSON con la URL)
+      const exp = participants.filter((p) => p.attended).length;
+      const res = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          uploadUrl,
+          language: "es",
+          ...(exp > 0 ? { speakers_expected: exp } : {}),
+        }),
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || `HTTP ${res.status}`);
@@ -245,8 +295,10 @@ export function CaptureStage({ onBack, onNext }: { onBack: () => void; onNext: (
         status: "transcribing",
         transcribeJobId: data.jobId,
       });
+      setUploadProgress(0);
     } catch (e: any) {
       setCapture({ status: "failed", errorMsg: e.message || "Error subiendo audio" });
+      setUploadProgress(0);
     }
   }
 
@@ -374,9 +426,24 @@ export function CaptureStage({ onBack, onNext }: { onBack: () => void; onNext: (
                 </Button>
               </>
             )}
-            {(capture.status === "uploading" || capture.status === "transcribing") && (
+            {capture.status === "uploading" && (
               <div className="text-kir-gris text-sm">
-                <div className="kir-blink">»» Procesando audio en servidor…</div>
+                <div className="kir-blink mb-2">»» Subiendo audio a AssemblyAI…</div>
+                <div className="h-2 bg-kir-gris-papel border border-kir-gris-border relative overflow-hidden mb-1">
+                  <div
+                    className="h-full bg-kir-teal transition-all"
+                    style={{ width: `${uploadProgress}%`, transitionDuration: "200ms" }}
+                  />
+                </div>
+                <div className="font-mono text-xs text-kir-negro">{uploadProgress}%</div>
+                <div className="text-xs mt-2">
+                  Audio enviado directo desde tu browser a AssemblyAI (sin pasar por el servidor de la app). Cuando termine, arranca la transcripción.
+                </div>
+              </div>
+            )}
+            {capture.status === "transcribing" && (
+              <div className="text-kir-gris text-sm">
+                <div className="kir-blink">»» Transcribiendo + diarizando…</div>
                 <div className="text-xs mt-2">
                   La diarización puede tardar entre 30 segundos y unos minutos según la duración del audio.
                 </div>

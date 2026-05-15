@@ -1,9 +1,11 @@
 // =============================================================================
 // POST /api/transcribe
 // =============================================================================
-// Recibe audio del navegador y lo envía a AssemblyAI para:
-//   1) Upload del audio
-//   2) Crear transcript con speaker_labels (diarización automática) en español
+// Recibe la upload_url de un audio ya subido directamente a AssemblyAI desde
+// el cliente (bypass del limite de 4.5 MB de Vercel) y crea el transcript con
+// diarizacion (speaker_labels) en el idioma indicado.
+//
+// Body JSON: { uploadUrl: string, speakers_expected?: number, language?: string }
 // Devuelve { jobId } — el cliente hace polling a /api/transcribe/[id]
 // =============================================================================
 
@@ -23,63 +25,31 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let audioBuffer: ArrayBuffer;
-  let speakersExpected: number | undefined;
-  let language: string = "es";
-
-  try {
-    const contentType = req.headers.get("content-type") || "";
-    if (contentType.includes("multipart/form-data")) {
-      const form = await req.formData();
-      const file = form.get("audio") as File | null;
-      const exp = form.get("speakers_expected");
-      const lng = form.get("language");
-      if (!file) throw new Error("Falta el archivo 'audio'");
-      audioBuffer = await file.arrayBuffer();
-      if (exp) speakersExpected = parseInt(exp.toString(), 10);
-      if (lng) language = lng.toString();
-    } else {
-      // raw body (audio/webm, audio/mp4...)
-      audioBuffer = await req.arrayBuffer();
-      const exp = req.headers.get("x-speakers-expected");
-      const lng = req.headers.get("x-language");
-      if (exp) speakersExpected = parseInt(exp, 10);
-      if (lng) language = lng;
-    }
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || "Audio inválido" }, { status: 400 });
-  }
-
-  if (!audioBuffer || audioBuffer.byteLength < 1000) {
-    return NextResponse.json({ error: "Audio vacío o demasiado corto" }, { status: 400 });
-  }
-
-  // 1) Upload audio a AssemblyAI
   let uploadUrl: string;
+  let speakersExpected: number | undefined;
+  let language = "es";
+
   try {
-    const uploadRes = await fetch(`${ASSEMBLYAI_BASE}/upload`, {
-      method: "POST",
-      headers: {
-        authorization: apiKey,
-        "content-type": "application/octet-stream",
-      },
-      body: Buffer.from(audioBuffer),
-    });
-    if (!uploadRes.ok) {
-      const txt = await uploadRes.text();
-      throw new Error(`Upload falló: ${uploadRes.status} ${txt}`);
+    const body = await req.json();
+    uploadUrl = body.uploadUrl;
+    if (typeof body.speakers_expected === "number") {
+      speakersExpected = body.speakers_expected;
+    } else if (typeof body.speakers_expected === "string") {
+      const n = parseInt(body.speakers_expected, 10);
+      if (!isNaN(n) && n > 0) speakersExpected = n;
     }
-    const uploadData = await uploadRes.json();
-    uploadUrl = uploadData.upload_url;
-  } catch (e: any) {
-    console.error("AAI upload error:", e);
-    return NextResponse.json(
-      { error: "Error subiendo audio a AssemblyAI: " + (e.message || e) },
-      { status: 502 }
-    );
+    if (typeof body.language === "string" && body.language) {
+      language = body.language;
+    }
+  } catch {
+    return NextResponse.json({ error: "Body JSON invalido" }, { status: 400 });
   }
 
-  // 2) Crear transcript con speaker_labels
+  if (!uploadUrl || typeof uploadUrl !== "string" || !uploadUrl.startsWith("http")) {
+    return NextResponse.json({ error: "Falta uploadUrl valida" }, { status: 400 });
+  }
+
+  // Crear transcript con speaker_labels
   try {
     const transcriptRes = await fetch(`${ASSEMBLYAI_BASE}/transcript`, {
       method: "POST",
@@ -99,7 +69,7 @@ export async function POST(req: NextRequest) {
     });
     if (!transcriptRes.ok) {
       const txt = await transcriptRes.text();
-      throw new Error(`Create transcript falló: ${transcriptRes.status} ${txt}`);
+      throw new Error(`Create transcript fallo: ${transcriptRes.status} ${txt}`);
     }
     const transcriptData = await transcriptRes.json();
     return NextResponse.json({
