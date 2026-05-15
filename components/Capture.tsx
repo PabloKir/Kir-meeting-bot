@@ -43,6 +43,33 @@ export function CaptureStage({ onBack, onNext }: { onBack: () => void; onNext: (
   const [audioLevel, setAudioLevel] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("audio/") && !/\.(webm|mp3|m4a|mp4|ogg|wav|flac)$/i.test(file.name)) {
+      alert("Formato no reconocido. Subí un archivo de audio (.webm, .mp3, .m4a, .ogg, .wav, .flac).");
+      e.target.value = "";
+      return;
+    }
+    if (capture.audioUrl) {
+      URL.revokeObjectURL(capture.audioUrl);
+    }
+    const url = URL.createObjectURL(file);
+    const durationSec = 0; // se calcula al reproducir; no es critico
+    setCapture({
+      audioBlob: file,
+      audioUrl: url,
+      utterances: [],
+      manualNotes: capture.manualNotes,
+      status: "idle",
+      errorMsg: null,
+      elapsed: durationSec,
+    });
+    setElapsed(0);
+    e.target.value = ""; // permitir re-subir el mismo file
+  }
 
   // Cleanup on unmount
   useEffect(() => {
@@ -405,11 +432,24 @@ export function CaptureStage({ onBack, onNext }: { onBack: () => void; onNext: (
             </div>
           )}
 
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="audio/*,.webm,.mp3,.m4a,.mp4,.ogg,.wav,.flac"
+            onChange={handleFileUpload}
+            style={{ display: "none" }}
+          />
+
           <div className="flex flex-col gap-2">
             {(capture.status === "idle" || capture.status === "failed") && !capture.audioBlob && (
-              <Button variant="primary" onClick={startRecording}>
-                Iniciar grabación <Chev className="text-white" />
-              </Button>
+              <>
+                <Button variant="primary" onClick={startRecording}>
+                  Iniciar grabación <Chev className="text-white" />
+                </Button>
+                <Button variant="ghost" onClick={() => fileInputRef.current?.click()}>
+                  Subir archivo de audio <Chev />
+                </Button>
+              </>
             )}
             {capture.status === "recording" && (
               <Button variant="danger" onClick={stopRecording}>
@@ -423,6 +463,9 @@ export function CaptureStage({ onBack, onNext }: { onBack: () => void; onNext: (
                 </Button>
                 <Button variant="ghost" onClick={startRecording}>
                   Grabar de nuevo
+                </Button>
+                <Button variant="ghost" onClick={() => fileInputRef.current?.click()}>
+                  Subir otro archivo
                 </Button>
               </>
             )}

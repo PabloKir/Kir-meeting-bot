@@ -85,6 +85,7 @@ const emptyDone = {
   questions: false,
   closure: false,
   minute: false,
+  history: false,
   improvements: false,
 } as Record<Stage, boolean>;
 

@@ -13,6 +13,7 @@ import {
   QuestionsStage,
   ClosureStage,
   MinuteStage,
+  HistoryStage,
   ImprovementsStage,
 } from "@/components/Stages";
 
@@ -26,6 +27,7 @@ const ORDER: Stage[] = [
   "questions",
   "closure",
   "minute",
+  "history",
   "improvements",
 ];
 
@@ -56,6 +58,7 @@ export default function Page() {
           {stage === "questions" && <QuestionsStage onBack={back} onNext={next} />}
           {stage === "closure" && <ClosureStage onBack={back} onNext={next} />}
           {stage === "minute" && <MinuteStage onBack={back} onNext={next} />}
+          {stage === "history" && <HistoryStage onBack={back} onNext={next} />}
           {stage === "improvements" && <ImprovementsStage onBack={back} />}
         </div>
       </main>

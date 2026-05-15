@@ -5,6 +5,12 @@ import { SectionHead, BracketedCard, CardHead, Button, Chev, Tag, Alert } from "
 import { Actions } from "./Setup";
 import type { Task } from "@/lib/types";
 import { useState, useEffect } from "react";
+import {
+  saveOrUpdateMeeting,
+  listMeetings,
+  deleteMeeting,
+  type StoredMeeting,
+} from "@/lib/history";
 
 // =============================================================================
 // QUESTIONS
@@ -271,12 +277,29 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
   const meeting = useStore((s) => s.meeting);
   const participants = useStore((s) => s.participants);
   const analysis = useStore((s) => s.analysis);
+  const capture = useStore((s) => s.capture);
   const markDone = useStore((s) => s.markDone);
   const [editing, setEditing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     markDone("minute");
+    // Auto-guardar la minuta en el historial local (solo si hay contenido real)
+    const hasContent =
+      !!analysis.executiveSummary ||
+      analysis.tasks.length + analysis.decisions.length + analysis.topics.length > 0;
+    if (hasContent && meeting.name.trim()) {
+      try {
+        saveOrUpdateMeeting({
+          meeting,
+          participants,
+          analysis,
+          utteranceCount: capture.utterances.length,
+        });
+      } catch (e) {
+        console.error("No se pudo guardar la minuta en el historial:", e);
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -759,6 +782,146 @@ function buildFog11HTML(meeting: any, participants: any[], analysis: any): strin
 }
 
 // =============================================================================
+// HISTORY — Lista de minutas guardadas en localStorage
+// =============================================================================
+export function HistoryStage({
+  onBack,
+  onNext,
+}: {
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  const setMeeting = useStore((s) => s.setMeeting);
+  const setParticipants = useStore((s) => s.setParticipants);
+  const setAnalysis = useStore((s) => s.setAnalysis);
+  const setStage = useStore((s) => s.setStage);
+  const markDone = useStore((s) => s.markDone);
+
+  const [meetings, setMeetings] = useState<StoredMeeting[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  // localStorage solo existe en el browser; cargamos en useEffect.
+  useEffect(() => {
+    setMeetings(listMeetings());
+    setLoaded(true);
+    markDone("history");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const refresh = () => setMeetings(listMeetings());
+
+  const handleLoad = (m: StoredMeeting) => {
+    setMeeting(m.meeting);
+    setParticipants(m.participants);
+    setAnalysis(m.analysis);
+    setStage("minute");
+  };
+
+  const handleDelete = (m: StoredMeeting) => {
+    if (!confirm(`¿Eliminar "${m.meeting.name}" del historial? Esta acción no se puede deshacer.`)) return;
+    deleteMeeting(m.id);
+    refresh();
+  };
+
+  const handleExport = (m: StoredMeeting) => {
+    const html = buildFog11HTML(m.meeting, m.participants, m.analysis);
+    openPrintWindow(html);
+  };
+
+  const fmtDate = (iso: string) => {
+    if (!iso) return "—";
+    const [y, mo, d] = iso.split("-");
+    return `${d}/${mo}/${y}`;
+  };
+  const fmtSaved = (ts: number) => {
+    const d = new Date(ts);
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mi = String(d.getMinutes()).padStart(2, "0");
+    return `${dd}/${mm}/${yy} ${hh}:${mi}`;
+  };
+
+  return (
+    <>
+      <SectionHead
+        eyebrow="Stage D.01 · Histórico"
+        title="Reuniones guardadas"
+        subtitle="Las minutas se guardan automáticamente en este browser cuando llegás a la pantalla C.02 Minuta. Podés volver a cargarlas, exportar el PDF o eliminarlas. Almacenamiento local — no se sincroniza entre dispositivos."
+        meta={{ num: "D.01", label: `${meetings.length} minutas` }}
+      />
+
+      {loaded && meetings.length === 0 && (
+        <Alert title="Sin minutas guardadas">
+          Cuando completes una reunión y llegues al stage <b>C.02 Minuta</b>, queda registrada acá automáticamente. Después podés exportarla a PDF de nuevo o volver a editarla.
+        </Alert>
+      )}
+
+      {meetings.length > 0 && (
+        <BracketedCard>
+          <CardHead title={`Historial (${meetings.length})`} id="FOG-11 / 06" />
+          <div className="grid grid-cols-[1fr_140px_90px_90px_320px] gap-3 font-display uppercase text-kir-gris border-b border-kir-negro pb-2 mb-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>
+            <div>Reunión</div>
+            <div>Fecha</div>
+            <div>Tareas</div>
+            <div>Riesgos</div>
+            <div>Acciones</div>
+          </div>
+          {meetings.map((m) => (
+            <div
+              key={m.id}
+              className="grid grid-cols-[1fr_140px_90px_90px_320px] gap-3 items-center py-3 border-b border-kir-gris-border"
+            >
+              <div className="min-w-0">
+                <div className="font-display font-bold text-sm truncate" style={{ letterSpacing: "-0.01em" }}>
+                  {m.meeting.name || "(sin nombre)"}
+                </div>
+                <div className="text-xs text-kir-gris mt-1 truncate">
+                  <span className="font-mono">{m.meeting.area || "—"}</span>
+                  {" · "}
+                  Guardada {fmtSaved(m.savedAt)}
+                </div>
+              </div>
+              <div className="font-mono text-xs text-kir-negro">
+                {fmtDate(m.meeting.date)}
+                <div className="text-[10px] text-kir-gris mt-0.5">{m.meeting.time} hs</div>
+              </div>
+              <div className="text-center">
+                <span className="font-display font-black text-lg" style={{ color: m.analysis.tasks.length > 0 ? "#222" : "#98989A" }}>
+                  {m.analysis.tasks.length}
+                </span>
+              </div>
+              <div className="text-center">
+                <span className="font-display font-black text-lg" style={{ color: m.analysis.risks.length > 0 ? "#B23A2C" : "#98989A" }}>
+                  {m.analysis.risks.length}
+                </span>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Button variant="ghost" size="sm" onClick={() => handleLoad(m)}>
+                  Abrir <Chev />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => handleExport(m)}>
+                  PDF
+                </Button>
+                <Button variant="danger" size="sm" onClick={() => handleDelete(m)}>
+                  Eliminar
+                </Button>
+              </div>
+            </div>
+          ))}
+        </BracketedCard>
+      )}
+
+      <Actions
+        left={<Button variant="ghost" onClick={onBack}>«« Volver a la minuta</Button>}
+        right={<Button variant="primary" onClick={onNext}>Ver mejoras <Chev className="text-white" /></Button>}
+      />
+    </>
+  );
+}
+
+// =============================================================================
 // IMPROVEMENTS
 // =============================================================================
 const IMPROVEMENTS = [
@@ -779,16 +942,16 @@ export function ImprovementsStage({ onBack }: { onBack: () => void }) {
   return (
     <>
       <SectionHead
-        eyebrow="Stage D.01 · Roadmap"
+        eyebrow="Stage D.02 · Roadmap"
         title="Mejoras sugeridas"
         subtitle="10 áreas de evolución para llevar este producto a estándar enterprise. Cada una mantiene la identidad KIR y se integra al stack existente."
-        meta={{ num: "D.01", label: "Roadmap" }}
+        meta={{ num: "D.02", label: "Roadmap" }}
       />
 
       <div className="grid grid-cols-2 gap-4">
         {IMPROVEMENTS.map((i) => (
           <div key={i.num} className="bg-white border border-kir-negro p-5">
-            <div className="font-mono text-[11px] text-kir-teal mb-1">»» D.01.{i.num} · {i.cat}</div>
+            <div className="font-mono text-[11px] text-kir-teal mb-1">»» D.02.{i.num} · {i.cat}</div>
             <h4 className="font-display font-black uppercase text-sm mb-2" style={{ letterSpacing: "-0.01em" }}>{i.title}</h4>
             <p className="text-kir-gris text-xs leading-relaxed">{i.desc}</p>
             <div className="mt-3 flex gap-1.5 flex-wrap">

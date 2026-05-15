@@ -11,6 +11,7 @@ export type Stage =
   | "questions"
   | "closure"
   | "minute"
+  | "history"
   | "improvements";
 
 export type ParticipantRole =

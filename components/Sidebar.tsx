@@ -29,9 +29,10 @@ const GROUPS: { title: string; stages: { id: Stage; num: string; label: string }
     ],
   },
   {
-    title: "D · Roadmap",
+    title: "D · Histórico y mejoras",
     stages: [
-      { id: "improvements", num: "D.01", label: "Mejoras" },
+      { id: "history",      num: "D.01", label: "Historial" },
+      { id: "improvements", num: "D.02", label: "Mejoras" },
     ],
   },
 ];
