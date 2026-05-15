@@ -16,6 +16,7 @@ import {
   HistoryStage,
   ImprovementsStage,
 } from "@/components/Stages";
+import { DashboardStage } from "@/components/Dashboard";
 
 // Orden de stages para navegación lineal
 const ORDER: Stage[] = [
@@ -28,6 +29,7 @@ const ORDER: Stage[] = [
   "closure",
   "minute",
   "history",
+  "dashboard",
   "improvements",
 ];
 
@@ -59,6 +61,7 @@ export default function Page() {
           {stage === "closure" && <ClosureStage onBack={back} onNext={next} />}
           {stage === "minute" && <MinuteStage onBack={back} onNext={next} />}
           {stage === "history" && <HistoryStage onBack={back} onNext={next} />}
+          {stage === "dashboard" && <DashboardStage onBack={back} onNext={next} />}
           {stage === "improvements" && <ImprovementsStage onBack={back} />}
         </div>
       </main>

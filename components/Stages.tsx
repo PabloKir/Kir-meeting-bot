@@ -1011,7 +1011,7 @@ const IMPROVEMENTS = [
   { num: "06", cat: "Almacenamiento", title: "Persistencia y búsqueda", desc: "Vercel Postgres + Vercel KV para guardar todas las reuniones. Búsqueda full-text. Trazabilidad por área/proyecto.", tags: ["Postgres", "BI"] },
   { num: "07", cat: "Compliance", title: "Consentimiento digital", desc: "Pantalla bloqueante de consentimiento con firma digital de participantes al inicio. Logs de acceso ISO 27001.", tags: ["Legal", "ISO"] },
   { num: "08", cat: "IA", title: "Voiceprint identification", desc: "Entrenar voiceprints por participante con muestras previas para que la diarización sepa de antemano quién es quién.", tags: ["ML", "Auth"] },
-  { num: "09", cat: "Dashboard", title: "Panel histórico + tendencias", desc: "Dashboard de tareas recurrentes no cumplidas, tendencias de riesgos por área, productividad de seguimiento.", tags: ["BI", "Trends"] },
+  { num: "09", cat: "Dashboard", title: "Panel histórico + tendencias ✓ IMPLEMENTADO", desc: "Disponible en D.02 Dashboard: tareas recurrentes no cumplidas, tendencias de riesgos por área, carga por responsable y productividad de seguimiento.", tags: ["LISTO", "D.02"] },
   { num: "10", cat: "Automation", title: "Follow-up automático", desc: "Recordatorios 48hs antes del plazo. Pre-armado de próxima minuta con compromisos abiertos. Inbox Zero para tareas pendientes.", tags: ["CRON", "Email"] },
 ];
 
@@ -1020,16 +1020,16 @@ export function ImprovementsStage({ onBack }: { onBack: () => void }) {
   return (
     <>
       <SectionHead
-        eyebrow="Stage D.02 · Roadmap"
+        eyebrow="Stage D.03 · Roadmap"
         title="Mejoras sugeridas"
-        subtitle="10 áreas de evolución para llevar este producto a estándar enterprise. Cada una mantiene la identidad KIR y se integra al stack existente."
-        meta={{ num: "D.02", label: "Roadmap" }}
+        subtitle="Áreas de evolución para llevar este producto a estándar enterprise. Cada una mantiene la identidad KIR y se integra al stack existente."
+        meta={{ num: "D.03", label: "Roadmap" }}
       />
 
       <div className="grid grid-cols-2 gap-4">
         {IMPROVEMENTS.map((i) => (
           <div key={i.num} className="bg-white border border-kir-negro p-5">
-            <div className="font-mono text-[11px] text-kir-teal mb-1">»» D.02.{i.num} · {i.cat}</div>
+            <div className="font-mono text-[11px] text-kir-teal mb-1">»» D.03.{i.num} · {i.cat}</div>
             <h4 className="font-display font-black uppercase text-sm mb-2" style={{ letterSpacing: "-0.01em" }}>{i.title}</h4>
             <p className="text-kir-gris text-xs leading-relaxed">{i.desc}</p>
             <div className="mt-3 flex gap-1.5 flex-wrap">
