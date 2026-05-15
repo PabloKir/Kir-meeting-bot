@@ -17,7 +17,15 @@ export function AnalysisStage({ onBack, onNext }: { onBack: () => void; onNext: 
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hasResult = analysis.topics.length + analysis.decisions.length + analysis.tasks.length > 0;
+  const hasResult =
+    !!analysis.executiveSummary ||
+    analysis.topics.length +
+      analysis.decisions.length +
+      analysis.tasks.length +
+      analysis.risks.length +
+      analysis.openQuestions.length +
+      analysis.nextSteps.length >
+      0;
 
   const runAnalysis = async () => {
     setLoading(true);
