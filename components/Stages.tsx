@@ -289,6 +289,11 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
   const markDone = useStore((s) => s.markDone);
   const [editing, setEditing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [distOpen, setDistOpen] = useState(false);
+  const [distTo, setDistTo] = useState("");
+  const [distCc, setDistCc] = useState("");
+  const [distMsg, setDistMsg] = useState("");
+  const [distSending, setDistSending] = useState(false);
 
   useEffect(() => {
     markDone("minute");
@@ -412,12 +417,64 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
     }
   };
 
+  const openDistribute = () => {
+    // Prefill con los emails de los participantes que asistieron
+    const to = participants
+      .filter((p) => p.attended && p.email && p.email.trim())
+      .map((p) => p.email!.trim());
+    const cc = participants
+      .filter((p) => !p.attended && p.email && p.email.trim())
+      .map((p) => p.email!.trim());
+    setDistTo(to.join(", "));
+    setDistCc(cc.join(", "));
+    setDistMsg("");
+    setDistOpen(true);
+  };
+
+  const sendDistribution = async () => {
+    const recipients = distTo
+      .split(/[,;\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const cc = distCc
+      .split(/[,;\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (recipients.length === 0) {
+      showToast("Cargá al menos un email destinatario.");
+      return;
+    }
+    setDistSending(true);
+    try {
+      const res = await fetch("/api/distribute", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          meeting,
+          participants,
+          analysis,
+          recipients,
+          cc,
+          message: distMsg,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      showToast(`Minuta enviada a ${data.sent} destinatario(s)${data.cc ? ` + ${data.cc} en copia` : ""}.`);
+      setDistOpen(false);
+    } catch (e: any) {
+      showToast("Error al enviar: " + (e.message || e));
+    } finally {
+      setDistSending(false);
+    }
+  };
+
   return (
     <>
       <SectionHead
         eyebrow="Stage C.02 · Documento final"
         title="Minuta lista para distribuir"
-        subtitle="Formato KIR estilo FOG-11 Rev.2. Editable in-place. Copia al portapapeles, descarga como .pdf o .txt."
+        subtitle="Formato KIR estilo FOG-11 Rev.2. Editable in-place. Copiá, exportá a PDF, o distribuí por email (PDF FOG-11 adjunto) a los participantes."
         meta={{ num: "C.02", label: "FOG · Minuta" }}
       />
 
@@ -428,8 +485,60 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
           <ToolBtn onClick={copyToClipboard}>Copiar</ToolBtn>
           <ToolBtn onClick={() => downloadFile(minuteAsText(), "txt", "text/plain")}>.txt</ToolBtn>
           <ToolBtn onClick={() => openPrintWindow(buildFog11HTML(meeting, participants, analysis))}>Exportar PDF</ToolBtn>
+          <ToolBtn onClick={openDistribute}>Distribuir »»</ToolBtn>
         </div>
       </div>
+
+      {distOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(34,34,34,0.55)" }}>
+          <div className="bg-white border border-kir-negro w-[640px] max-w-[92vw] max-h-[88vh] overflow-y-auto">
+            <div className="flex justify-between items-center px-5 py-3 bg-kir-negro text-white" style={{ fontSize: 11, letterSpacing: "0.22em" }}>
+              <span className="font-display uppercase">Distribuir minuta · PDF FOG-11</span>
+              <button onClick={() => setDistOpen(false)} className="text-white text-lg leading-none cursor-pointer">×</button>
+            </div>
+            <div className="p-6">
+              <div className="text-xs text-kir-gris mb-4 leading-relaxed">
+                Se genera el PDF FOG-11 en el servidor y se envía como adjunto por el correo corporativo de KIR. Separá varios emails con coma.
+              </div>
+              <div className="mb-4">
+                <label className="kir-label">Para (asistentes)</label>
+                <textarea
+                  className="kir-input min-h-[60px] resize-y"
+                  value={distTo}
+                  onChange={(e) => setDistTo(e.target.value)}
+                  placeholder="nombre@kir.com.ar, otro@kir.com.ar"
+                />
+              </div>
+              <div className="mb-4">
+                <label className="kir-label">Con copia (opcional)</label>
+                <textarea
+                  className="kir-input min-h-[44px] resize-y"
+                  value={distCc}
+                  onChange={(e) => setDistCc(e.target.value)}
+                  placeholder="cc@kir.com.ar"
+                />
+              </div>
+              <div className="mb-5">
+                <label className="kir-label">Mensaje (opcional)</label>
+                <textarea
+                  className="kir-input min-h-[70px] resize-y"
+                  value={distMsg}
+                  onChange={(e) => setDistMsg(e.target.value)}
+                  placeholder="Texto adicional que va en el cuerpo del email, antes del adjunto."
+                />
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button variant="ghost" onClick={() => setDistOpen(false)} disabled={distSending}>
+                  Cancelar
+                </Button>
+                <Button variant="primary" onClick={sendDistribution} disabled={distSending}>
+                  {distSending ? "Enviando…" : "Enviar minuta"} <Chev className="text-white" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div
         className="minute-doc bg-white border border-kir-negro p-12 px-14 relative"

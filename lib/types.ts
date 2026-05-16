@@ -30,6 +30,7 @@ export interface Participant {
   role: ParticipantRole;
   canBeResponsible: boolean;
   attended: boolean;
+  email?: string; // para distribuir la minuta por email
 }
 
 export interface Meeting {

@@ -87,7 +87,7 @@ export function ParticipantsStage({
 
         <div className="grid grid-cols-[40px_1fr_200px_140px_90px_40px] gap-3 font-display uppercase text-kir-gris border-b border-kir-negro pb-2 mb-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>
           <div />
-          <div>Nombre y apellido</div>
+          <div>Nombre y apellido · Email</div>
           <div>Rol</div>
           <div>Asignable</div>
           <div>Asiste</div>
@@ -107,14 +107,24 @@ export function ParticipantsStage({
             >
               {p.initials || initialsOf(p.name) || "??"}
             </div>
-            <input
-              type="text"
-              className="kir-input"
-              style={{ padding: "6px 8px", fontSize: 13 }}
-              value={p.name}
-              onChange={(e) => update(p.id, { name: e.target.value })}
-              placeholder="Nombre y apellido"
-            />
+            <div className="flex flex-col gap-1.5">
+              <input
+                type="text"
+                className="kir-input"
+                style={{ padding: "6px 8px", fontSize: 13 }}
+                value={p.name}
+                onChange={(e) => update(p.id, { name: e.target.value })}
+                placeholder="Nombre y apellido"
+              />
+              <input
+                type="email"
+                className="kir-input"
+                style={{ padding: "6px 8px", fontSize: 12 }}
+                value={p.email || ""}
+                onChange={(e) => update(p.id, { email: e.target.value })}
+                placeholder="email@kir.com.ar (para distribuir la minuta)"
+              />
+            </div>
             <select
               className="kir-input"
               style={{ padding: "6px 8px", fontSize: 13 }}
