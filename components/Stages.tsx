@@ -12,7 +12,12 @@ import {
   exportHistoryJSON,
   importHistoryJSON,
   syncFromServer,
+  isProtected,
+  protectMeeting,
+  unlockPayload,
+  removeProtection,
   type StoredMeeting,
+  type MeetingPayload,
 } from "@/lib/history";
 
 // =============================================================================
@@ -804,7 +809,23 @@ export function HistoryStage({
   const [loaded, setLoaded] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Payloads descifrados en memoria para esta sesion (no se persisten)
+  const [unlocked, setUnlocked] = useState<Record<string, MeetingPayload>>({});
   const importInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Devuelve el contenido en claro de una minuta, o null si esta protegida
+  // y todavia no se desbloqueo en esta sesion.
+  const payloadOf = (m: StoredMeeting): MeetingPayload | null => {
+    if (!isProtected(m)) {
+      return {
+        meeting: m.meeting!,
+        participants: m.participants || [],
+        analysis: m.analysis!,
+        utteranceCount: m.utteranceCount || 0,
+      };
+    }
+    return unlocked[m.id] || null;
+  };
 
   const showToast = (m: string) => {
     setToast(m);
@@ -864,22 +885,91 @@ export function HistoryStage({
     e.target.value = "";
   };
 
+  const titleOf = (m: StoredMeeting) =>
+    isProtected(m) ? m.label || "(protegida)" : m.meeting?.name || "(sin nombre)";
+
   const handleLoad = (m: StoredMeeting) => {
-    setMeeting(m.meeting);
-    setParticipants(m.participants);
-    setAnalysis(m.analysis);
+    const p = payloadOf(m);
+    if (!p) {
+      showToast("Minuta protegida: desbloqueala primero con la clave.");
+      return;
+    }
+    setMeeting(p.meeting);
+    setParticipants(p.participants);
+    setAnalysis(p.analysis);
     setStage("minute");
   };
 
   const handleDelete = (m: StoredMeeting) => {
-    if (!confirm(`¿Eliminar "${m.meeting.name}" del historial? Esta acción no se puede deshacer.`)) return;
+    if (!confirm(`¿Eliminar "${titleOf(m)}" del historial? Esta acción no se puede deshacer.`)) return;
     deleteMeeting(m.id);
+    setUnlocked((u) => {
+      const n = { ...u };
+      delete n[m.id];
+      return n;
+    });
     refresh();
   };
 
   const handleExport = (m: StoredMeeting) => {
-    const html = buildFog11HTML(m.meeting, m.participants, m.analysis);
+    const p = payloadOf(m);
+    if (!p) {
+      showToast("Minuta protegida: desbloqueala primero con la clave.");
+      return;
+    }
+    const html = buildFog11HTML(p.meeting, p.participants, p.analysis);
     openPrintWindow(html);
+  };
+
+  const handleProtect = async (m: StoredMeeting) => {
+    const pw = window.prompt(
+      "Definí una clave para proteger esta minuta.\n\nGuardala bien: si la perdés, el contenido NO se puede recuperar (cifrado real)."
+    );
+    if (pw == null) return;
+    const pw2 = window.prompt("Repetí la clave para confirmar:");
+    if (pw2 == null) return;
+    if (pw !== pw2) {
+      showToast("Las claves no coinciden. No se protegió la minuta.");
+      return;
+    }
+    try {
+      await protectMeeting(m.id, pw);
+      refresh();
+      showToast("Minuta protegida y cifrada.");
+    } catch (e: any) {
+      showToast("No se pudo proteger: " + (e.message || e));
+    }
+  };
+
+  const handleUnlock = async (m: StoredMeeting) => {
+    const pw = window.prompt(`Clave para desbloquear "${titleOf(m)}":`);
+    if (pw == null) return;
+    try {
+      const payload = await unlockPayload(m, pw);
+      setUnlocked((u) => ({ ...u, [m.id]: payload }));
+      showToast("Minuta desbloqueada para esta sesión.");
+    } catch (e: any) {
+      showToast(e.message || "No se pudo desbloquear.");
+    }
+  };
+
+  const handleRemoveProtection = async (m: StoredMeeting) => {
+    const pw = window.prompt(
+      `Para quitar la protección de "${titleOf(m)}" ingresá la clave actual:`
+    );
+    if (pw == null) return;
+    try {
+      await removeProtection(m.id, pw);
+      setUnlocked((u) => {
+        const n = { ...u };
+        delete n[m.id];
+        return n;
+      });
+      refresh();
+      showToast("Protección quitada. La minuta quedó en claro.");
+    } catch (e: any) {
+      showToast(e.message || "No se pudo quitar la protección.");
+    }
   };
 
   const fmtDate = (iso: string) => {
@@ -902,7 +992,7 @@ export function HistoryStage({
       <SectionHead
         eyebrow="Stage D.01 · Histórico"
         title="Reuniones guardadas"
-        subtitle="Las minutas se guardan automáticamente al llegar a la pantalla C.02 Minuta. Se sincronizan con el servidor compartido: se ven igual desde cualquier dominio, navegador o dispositivo. localStorage funciona como cache offline."
+        subtitle="Las minutas se guardan automáticamente al llegar a la pantalla C.02 Minuta y se sincronizan con el servidor compartido. Las marcadas con 🔒 están cifradas con clave: el servidor solo guarda texto cifrado y hace falta la contraseña para verlas."
         meta={{ num: "D.01", label: syncing ? "Sincronizando…" : `${meetings.length} minutas` }}
       />
 
@@ -922,48 +1012,93 @@ export function HistoryStage({
             <div>Riesgos</div>
             <div>Acciones</div>
           </div>
-          {meetings.map((m) => (
-            <div
-              key={m.id}
-              className="grid grid-cols-[1fr_140px_90px_90px_320px] gap-3 items-center py-3 border-b border-kir-gris-border"
-            >
-              <div className="min-w-0">
-                <div className="font-display font-bold text-sm truncate" style={{ letterSpacing: "-0.01em" }}>
-                  {m.meeting.name || "(sin nombre)"}
+          {meetings.map((m) => {
+            const locked = isProtected(m);
+            const p = payloadOf(m);
+            const open = !!p; // contenido disponible (no protegida, o desbloqueada)
+            return (
+              <div
+                key={m.id}
+                className="grid grid-cols-[1fr_140px_90px_90px_320px] gap-3 items-center py-3 border-b border-kir-gris-border"
+              >
+                <div className="min-w-0">
+                  <div className="font-display font-bold text-sm truncate flex items-center gap-2" style={{ letterSpacing: "-0.01em" }}>
+                    {locked && (
+                      <span
+                        title={open ? "Protegida — desbloqueada en esta sesión" : "Protegida con clave"}
+                        className={open ? "text-kir-teal" : "text-kir-rojo"}
+                        style={{ fontWeight: 900 }}
+                      >
+                        {open ? "🔓" : "🔒"}
+                      </span>
+                    )}
+                    <span className="truncate">{titleOf(m)}</span>
+                  </div>
+                  <div className="text-xs text-kir-gris mt-1 truncate">
+                    {locked && !open ? (
+                      <span className="font-mono text-kir-rojo">CONTENIDO CIFRADO</span>
+                    ) : (
+                      <span className="font-mono">{p?.meeting.area || "—"}</span>
+                    )}
+                    {" · "}
+                    Guardada {fmtSaved(m.savedAt)}
+                  </div>
                 </div>
-                <div className="text-xs text-kir-gris mt-1 truncate">
-                  <span className="font-mono">{m.meeting.area || "—"}</span>
-                  {" · "}
-                  Guardada {fmtSaved(m.savedAt)}
+                <div className="font-mono text-xs text-kir-negro">
+                  {fmtDate(open ? p!.meeting.date : m.dateLabel || "")}
+                  {open && (
+                    <div className="text-[10px] text-kir-gris mt-0.5">{p!.meeting.time} hs</div>
+                  )}
+                </div>
+                <div className="text-center">
+                  {open ? (
+                    <span className="font-display font-black text-lg" style={{ color: p!.analysis.tasks.length > 0 ? "#222" : "#98989A" }}>
+                      {p!.analysis.tasks.length}
+                    </span>
+                  ) : (
+                    <span className="text-kir-gris">—</span>
+                  )}
+                </div>
+                <div className="text-center">
+                  {open ? (
+                    <span className="font-display font-black text-lg" style={{ color: p!.analysis.risks.length > 0 ? "#B23A2C" : "#98989A" }}>
+                      {p!.analysis.risks.length}
+                    </span>
+                  ) : (
+                    <span className="text-kir-gris">—</span>
+                  )}
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {locked && !open ? (
+                    <Button variant="primary" size="sm" onClick={() => handleUnlock(m)}>
+                      Desbloquear <Chev className="text-white" />
+                    </Button>
+                  ) : (
+                    <>
+                      <Button variant="ghost" size="sm" onClick={() => handleLoad(m)}>
+                        Abrir <Chev />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleExport(m)}>
+                        PDF
+                      </Button>
+                      {locked ? (
+                        <Button variant="ghost" size="sm" onClick={() => handleRemoveProtection(m)}>
+                          Quitar clave
+                        </Button>
+                      ) : (
+                        <Button variant="ghost" size="sm" onClick={() => handleProtect(m)}>
+                          🔒 Proteger
+                        </Button>
+                      )}
+                    </>
+                  )}
+                  <Button variant="danger" size="sm" onClick={() => handleDelete(m)}>
+                    Eliminar
+                  </Button>
                 </div>
               </div>
-              <div className="font-mono text-xs text-kir-negro">
-                {fmtDate(m.meeting.date)}
-                <div className="text-[10px] text-kir-gris mt-0.5">{m.meeting.time} hs</div>
-              </div>
-              <div className="text-center">
-                <span className="font-display font-black text-lg" style={{ color: m.analysis.tasks.length > 0 ? "#222" : "#98989A" }}>
-                  {m.analysis.tasks.length}
-                </span>
-              </div>
-              <div className="text-center">
-                <span className="font-display font-black text-lg" style={{ color: m.analysis.risks.length > 0 ? "#B23A2C" : "#98989A" }}>
-                  {m.analysis.risks.length}
-                </span>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                <Button variant="ghost" size="sm" onClick={() => handleLoad(m)}>
-                  Abrir <Chev />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleExport(m)}>
-                  PDF
-                </Button>
-                <Button variant="danger" size="sm" onClick={() => handleDelete(m)}>
-                  Eliminar
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </BracketedCard>
       )}
 

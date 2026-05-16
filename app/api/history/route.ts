@@ -45,8 +45,13 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Body JSON invalido" }, { status: 400 });
   }
-  if (!meeting || !meeting.id || !meeting.meeting || !meeting.analysis) {
-    return NextResponse.json({ error: "Minuta invalida (falta id/meeting/analysis)" }, { status: 400 });
+  const validOpen = meeting && meeting.id && meeting.meeting && meeting.analysis;
+  const validProtected = meeting && meeting.id && meeting.protected && meeting.enc;
+  if (!validOpen && !validProtected) {
+    return NextResponse.json(
+      { error: "Minuta invalida (falta id/meeting/analysis o envelope cifrado)" },
+      { status: 400 }
+    );
   }
   try {
     await redis.hset(HISTORY_KEY, { [meeting.id]: JSON.stringify(meeting) });

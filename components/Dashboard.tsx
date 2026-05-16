@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { SectionHead, BracketedCard, CardHead, Button, Chev, Tag, Alert } from "./Brand";
 import { Actions } from "./Setup";
-import { listMeetings, syncFromServer, type StoredMeeting } from "@/lib/history";
+import { listMeetings, syncFromServer, isProtected, type StoredMeeting } from "@/lib/history";
 import { useStore } from "@/lib/store";
 
 // =============================================================================
@@ -53,7 +53,15 @@ export function DashboardStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const d = useMemo(() => computeDashboard(meetings), [meetings]);
+  const protectedCount = useMemo(
+    () => meetings.filter((m) => isProtected(m)).length,
+    [meetings]
+  );
+  const visible = useMemo(
+    () => meetings.filter((m) => !isProtected(m)),
+    [meetings]
+  );
+  const d = useMemo(() => computeDashboard(visible), [visible]);
 
   return (
     <>
@@ -70,7 +78,13 @@ export function DashboardStage({
         </Alert>
       )}
 
-      {meetings.length > 0 && (
+      {protectedCount > 0 && (
+        <Alert title="Minutas protegidas excluidas">
+          {protectedCount} {protectedCount === 1 ? "minuta protegida con clave no se incluye" : "minutas protegidas con clave no se incluyen"} en estas métricas: su contenido está cifrado. El dashboard agrega solo las minutas en claro.
+        </Alert>
+      )}
+
+      {visible.length > 0 && (
         <>
           {/* KPIs */}
           <div className="grid grid-cols-4 border border-kir-negro mb-6">

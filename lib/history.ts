@@ -13,16 +13,37 @@
 // =============================================================================
 
 import type { Analysis, Meeting, Participant } from "./types";
+import { encryptJSON, decryptJSON, type EncBlob } from "./crypto";
 
 const STORAGE_KEY = "kir-meeting-agent.history.v1";
 
-export interface StoredMeeting {
-  id: string;
-  savedAt: number;
+// Contenido sensible de una minuta. Cuando la minuta esta protegida, este
+// objeto va cifrado en `enc` y los campos meeting/participants/analysis
+// quedan undefined en el StoredMeeting (solo se ve metadata minima).
+export interface MeetingPayload {
   meeting: Meeting;
   participants: Participant[];
   analysis: Analysis;
   utteranceCount: number;
+}
+
+export interface StoredMeeting {
+  id: string;
+  savedAt: number;
+  // Contenido en claro (cuando NO esta protegida)
+  meeting?: Meeting;
+  participants?: Participant[];
+  analysis?: Analysis;
+  utteranceCount?: number;
+  // Proteccion con clave
+  protected?: boolean;
+  label?: string; // nombre visible aunque este cifrada
+  dateLabel?: string; // fecha visible (YYYY-MM-DD) aunque este cifrada
+  enc?: EncBlob; // MeetingPayload cifrado
+}
+
+export function isProtected(m: StoredMeeting): boolean {
+  return !!m.protected && !!m.enc;
 }
 
 function isBrowser(): boolean {
@@ -76,6 +97,82 @@ export function deleteMeeting(id: string): void {
 
 export function clearAllMeetings(): void {
   writeAll([]);
+}
+
+// =============================================================================
+// Proteccion con clave
+// =============================================================================
+
+// Cifra el contenido de una minuta ya guardada. Deja solo metadata visible
+// (label = nombre, dateLabel = fecha) y guarda el resto en `enc`.
+export async function protectMeeting(id: string, password: string): Promise<void> {
+  if (!password || password.length < 4) {
+    throw new Error("La contraseña debe tener al menos 4 caracteres.");
+  }
+  const all = readAll();
+  const idx = all.findIndex((m) => m.id === id);
+  if (idx < 0) throw new Error("Minuta no encontrada.");
+  const m = all[idx];
+  if (isProtected(m)) throw new Error("La minuta ya está protegida.");
+  if (!m.meeting || !m.analysis) {
+    throw new Error("No hay contenido para proteger.");
+  }
+  const payload: MeetingPayload = {
+    meeting: m.meeting,
+    participants: m.participants || [],
+    analysis: m.analysis,
+    utteranceCount: m.utteranceCount || 0,
+  };
+  const enc = await encryptJSON(payload, password);
+  const locked: StoredMeeting = {
+    id: m.id,
+    savedAt: Date.now(),
+    protected: true,
+    label: m.meeting.name || "(sin nombre)",
+    dateLabel: m.meeting.date || "",
+    enc,
+  };
+  all[idx] = locked;
+  writeAll(all);
+  pushMeetingToServer(locked);
+}
+
+// Descifra y devuelve el contenido. Lanza si la clave es incorrecta.
+export async function unlockPayload(
+  m: StoredMeeting,
+  password: string
+): Promise<MeetingPayload> {
+  if (!isProtected(m) || !m.enc) {
+    // No protegida: devolver el contenido tal cual
+    return {
+      meeting: m.meeting as Meeting,
+      participants: m.participants || [],
+      analysis: m.analysis as Analysis,
+      utteranceCount: m.utteranceCount || 0,
+    };
+  }
+  return decryptJSON<MeetingPayload>(m.enc, password);
+}
+
+// Quita la proteccion: verifica la clave descifrando y reescribe en claro.
+export async function removeProtection(id: string, password: string): Promise<void> {
+  const all = readAll();
+  const idx = all.findIndex((m) => m.id === id);
+  if (idx < 0) throw new Error("Minuta no encontrada.");
+  const m = all[idx];
+  if (!isProtected(m) || !m.enc) throw new Error("La minuta no está protegida.");
+  const payload = await decryptJSON<MeetingPayload>(m.enc, password); // throws si clave mala
+  const open: StoredMeeting = {
+    id: m.id,
+    savedAt: Date.now(),
+    meeting: payload.meeting,
+    participants: payload.participants,
+    analysis: payload.analysis,
+    utteranceCount: payload.utteranceCount,
+  };
+  all[idx] = open;
+  writeAll(all);
+  pushMeetingToServer(open);
 }
 
 // =============================================================================
@@ -135,9 +232,13 @@ export function saveOrUpdateMeeting(
   data: Omit<StoredMeeting, "id" | "savedAt">
 ): StoredMeeting {
   const all = readAll();
-  const fingerprint = (m: Meeting) => `${m.name}|${m.date}|${m.time}`;
+  const fingerprint = (m?: Meeting) =>
+    m ? `${m.name}|${m.date}|${m.time}` : "";
   const fp = fingerprint(data.meeting);
-  const idx = all.findIndex((m) => fingerprint(m.meeting) === fp);
+  // No matchear contra minutas protegidas (no exponen meeting) ni con fp vacio.
+  const idx = fp
+    ? all.findIndex((m) => !isProtected(m) && fingerprint(m.meeting) === fp)
+    : -1;
   const now = Date.now();
   if (idx >= 0) {
     const updated: StoredMeeting = { ...all[idx], ...data, savedAt: now };
@@ -206,7 +307,9 @@ export function importHistoryJSON(jsonText: string): ImportResult {
   let skipped = 0;
 
   for (const m of incoming) {
-    if (!m || typeof m !== "object" || !m.id || !m.meeting || !m.analysis) {
+    const validOpen = m && typeof m === "object" && m.id && m.meeting && m.analysis;
+    const validProtected = m && typeof m === "object" && m.id && m.protected && m.enc;
+    if (!validOpen && !validProtected) {
       skipped++;
       continue;
     }
