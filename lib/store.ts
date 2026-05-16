@@ -105,7 +105,7 @@ const SAMPLE_MEETING: Meeting = {
   name: "Comité gerencial — seguimiento operativo",
   date: new Date().toISOString().slice(0, 10),
   time: "10:00",
-  area: "Gerencia / Operaciones",
+  area: "Gerencia",
   objective: "Revisar avance de obras, proyección de caja y desvíos del mes",
   type: "seguimiento",
   formality: "institucional",

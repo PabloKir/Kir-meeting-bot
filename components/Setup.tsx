@@ -1,6 +1,7 @@
 "use client";
 
 import { useStore } from "@/lib/store";
+import { AREAS } from "@/lib/areas";
 import {
   SectionHead,
   BracketedCard,
@@ -22,6 +23,7 @@ export function SetupStage({ onNext }: { onNext: () => void }) {
 
   const next = () => {
     if (!meeting.name.trim()) return alert("Falta el nombre de la reunión");
+    if (!meeting.area.trim()) return alert("Seleccioná el área de la reunión");
     if (!meeting.objective.trim()) return alert("Falta el objetivo principal");
     markDone("setup");
     onNext();
@@ -61,14 +63,22 @@ export function SetupStage({ onNext }: { onNext: () => void }) {
           </Field>
         </div>
 
-        <Field label="Área o equipo">
-          <input
-            type="text"
+        <Field label="Área" required help="Lista cerrada para permitir seguimiento por área en el dashboard.">
+          <select
             className="kir-input"
             value={meeting.area}
             onChange={(e) => setMeeting({ area: e.target.value })}
-            placeholder="Ej: Gerencia / Calidad / Obra Migraciones"
-          />
+          >
+            <option value="">— Seleccionar área —</option>
+            {AREAS.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+            {meeting.area && !(AREAS as readonly string[]).includes(meeting.area) && (
+              <option value={meeting.area}>{meeting.area} (histórico)</option>
+            )}
+          </select>
         </Field>
 
         <Field label="Objetivo principal" required>
