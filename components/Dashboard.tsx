@@ -41,6 +41,7 @@ export function DashboardStage({
   const [meetings, setMeetings] = useState<StoredMeeting[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [areaFilter, setAreaFilter] = useState<string>("");
 
   useEffect(() => {
     setMeetings(listMeetings());
@@ -61,7 +62,22 @@ export function DashboardStage({
     () => meetings.filter((m) => !isProtected(m)),
     [meetings]
   );
-  const d = useMemo(() => computeDashboard(visible), [visible]);
+  const areasPresent = useMemo(() => {
+    const set = new Set<string>();
+    visible.forEach((m) => {
+      const a = (m.meeting?.area || "").trim();
+      if (a) set.add(a);
+    });
+    return Array.from(set).sort();
+  }, [visible]);
+  const filtered = useMemo(
+    () =>
+      areaFilter
+        ? visible.filter((m) => (m.meeting?.area || "").trim() === areaFilter)
+        : visible,
+    [visible, areaFilter]
+  );
+  const d = useMemo(() => computeDashboard(filtered), [filtered]);
 
   return (
     <>
@@ -84,11 +100,39 @@ export function DashboardStage({
         </Alert>
       )}
 
+      {visible.length > 0 && areasPresent.length > 0 && (
+        <div className="bg-white border border-kir-negro p-4 mb-4">
+          <div className="font-display uppercase text-kir-gris mb-2 flex items-center gap-1.5" style={{ fontSize: 9, letterSpacing: "0.22em" }}>
+            <Chev kind="single" /> Filtrar por área
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setAreaFilter("")}
+              className={`kir-chip ${areaFilter === "" ? "active" : ""}`}
+            >
+              <span className="chev">»</span>Todas
+            </button>
+            {areasPresent.map((a) => (
+              <button
+                key={a}
+                type="button"
+                onClick={() => setAreaFilter(a)}
+                className={`kir-chip ${areaFilter === a ? "active" : ""}`}
+              >
+                <span className="chev">»</span>
+                {a}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {visible.length > 0 && (
         <>
           {/* KPIs */}
           <div className="grid grid-cols-4 border border-kir-negro mb-6">
-            <Kpi label="Reuniones" value={d.totalMeetings} />
+            <Kpi label={areaFilter ? `Reuniones · ${areaFilter}` : "Reuniones"} value={d.totalMeetings} />
             <Kpi label="Tareas totales" value={d.totalTasks} sub={`${d.pendingTasks} pendientes`} />
             <Kpi label="Riesgos activos" value={d.totalRisks} sub={`${d.highRisks} nivel alto`} alert={d.highRisks > 0} />
             <Kpi label="Gaps de seguimiento" value={d.gapTasks} sub="sin resp. o sin plazo" alert={d.gapTasks > 0} last />
@@ -134,38 +178,33 @@ export function DashboardStage({
               )}
             </BracketedCard>
 
-            {/* Riesgos por área */}
+            {/* Mapa de riesgos por área */}
             <BracketedCard>
-              <CardHead title="Riesgos por área" id="D.02 / 02" />
+              <CardHead title="Mapa de riesgos · área × nivel" id="D.02 / 02" />
               {d.risksByArea.length === 0 ? (
                 <Empty />
               ) : (
-                <table className="kir-table">
-                  <thead>
-                    <tr>
-                      <th>Área</th>
-                      <th style={{ textAlign: "center", width: 60 }}>Alta</th>
-                      <th style={{ textAlign: "center", width: 60 }}>Media</th>
-                      <th style={{ textAlign: "center", width: 60 }}>Baja</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {d.risksByArea.map((a) => (
-                      <tr key={a.area}>
-                        <td>{a.area}</td>
-                        <td style={{ textAlign: "center" }}>
-                          {a.alta > 0 ? <Tag variant="alta">{a.alta}</Tag> : <span className="text-kir-gris">—</span>}
-                        </td>
-                        <td style={{ textAlign: "center" }}>
-                          {a.media > 0 ? <Tag variant="media">{a.media}</Tag> : <span className="text-kir-gris">—</span>}
-                        </td>
-                        <td style={{ textAlign: "center" }}>
-                          {a.baja > 0 ? <Tag variant="baja">{a.baja}</Tag> : <span className="text-kir-gris">—</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="space-y-2">
+                  {d.risksByArea.map((a) => (
+                    <div key={a.area} className="grid grid-cols-[1fr_auto] gap-3 items-center">
+                      <span className="font-display font-bold text-xs truncate">{a.area}</span>
+                      <div className="flex gap-1">
+                        <RiskCell n={a.alta} color="#B23A2C" />
+                        <RiskCell n={a.media} color="#B8860B" />
+                        <RiskCell n={a.baja} color="#98989A" />
+                      </div>
+                    </div>
+                  ))}
+                  <div className="pt-2 mt-1 border-t border-kir-gris-border">
+                    <Legend
+                      items={[
+                        { c: "#B23A2C", t: "Alta" },
+                        { c: "#B8860B", t: "Media" },
+                        { c: "#98989A", t: "Baja" },
+                      ]}
+                    />
+                  </div>
+                </div>
               )}
             </BracketedCard>
           </div>
@@ -207,9 +246,52 @@ export function DashboardStage({
           </BracketedCard>
 
           <div className="grid grid-cols-2 gap-4 mt-4">
+            {/* Tareas pendientes por área */}
+            <BracketedCard>
+              <CardHead title="Tareas pendientes por área" id="D.02 / 04" />
+              {d.pendingByArea.length === 0 ? (
+                <Empty />
+              ) : (
+                <div className="space-y-3">
+                  {d.pendingByArea.map((a) => (
+                    <div key={a.area}>
+                      <div className="flex justify-between items-baseline mb-1">
+                        <span className="font-display font-bold text-sm">{a.area}</span>
+                        <span className="font-mono text-xs text-kir-gris">
+                          {a.pending} pend. / {a.total} total
+                        </span>
+                      </div>
+                      <div className="h-3 bg-kir-gris-papel border border-kir-gris-border relative overflow-hidden">
+                        <div
+                          className="h-full"
+                          style={{
+                            width: `${pct(a.total, d.maxAreaPending)}%`,
+                            background: "#E2E2E2",
+                          }}
+                        />
+                        <div
+                          className="h-full absolute top-0 left-0"
+                          style={{
+                            width: `${pct(a.pending, d.maxAreaPending)}%`,
+                            background: a.pending > 0 ? "#B23A2C" : "#006B68",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  <Legend
+                    items={[
+                      { c: "#B23A2C", t: "Pendientes" },
+                      { c: "#E2E2E2", t: "Total tareas" },
+                    ]}
+                  />
+                </div>
+              )}
+            </BracketedCard>
+
             {/* Tendencia mensual */}
             <BracketedCard>
-              <CardHead title="Tendencia mensual" id="D.02 / 04" />
+              <CardHead title="Tendencia mensual" id="D.02 / 05" />
               {d.monthly.length === 0 ? (
                 <Empty />
               ) : (
@@ -236,7 +318,7 @@ export function DashboardStage({
 
             {/* Productividad de seguimiento */}
             <BracketedCard>
-              <CardHead title="Productividad de seguimiento" id="D.02 / 05" />
+              <CardHead title="Productividad de seguimiento" id="D.02 / 06" />
               <div className="space-y-4">
                 <Gauge label="Tareas con responsable" value={d.pctWithResponsible} />
                 <Gauge label="Tareas con plazo" value={d.pctWithDeadline} />
@@ -336,6 +418,29 @@ function Empty() {
   return <div className="text-sm text-kir-gris italic py-4">— Sin datos suficientes —</div>;
 }
 
+// Celda del mapa de riesgos: cuadro con el conteo; vacío = gris tenue.
+function RiskCell({ n, color }: { n: number; color: string }) {
+  const has = n > 0;
+  return (
+    <span
+      className="inline-flex items-center justify-center font-display font-black"
+      style={{
+        width: 34,
+        height: 26,
+        fontSize: 12,
+        border: "1px solid",
+        borderColor: has ? color : "#E2E2E2",
+        background: has ? color : "#FAFAFA",
+        color: has ? "#fff" : "#C8C8C8",
+        letterSpacing: "-0.02em",
+      }}
+      title={`${n}`}
+    >
+      {has ? n : "·"}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Agregaciones
 // ---------------------------------------------------------------------------
@@ -395,6 +500,21 @@ function computeDashboard(meetings: StoredMeeting[]) {
   const risksByArea = Array.from(areaRisk.entries())
     .map(([area, v]) => ({ area, ...v, total: v.alta + v.media + v.baja }))
     .sort((a, b) => b.alta - a.alta || b.total - a.total);
+  const maxAreaRisk = Math.max(1, ...risksByArea.map((a) => a.total));
+
+  // Tareas pendientes por area (seguimiento de carga abierta por sector)
+  const areaTask = new Map<string, { pending: number; total: number }>();
+  for (const t of tasks) {
+    const e = areaTask.get(t.area) || { pending: 0, total: 0 };
+    e.total++;
+    if (isPending(t.status)) e.pending++;
+    areaTask.set(t.area, e);
+  }
+  const pendingByArea = Array.from(areaTask.entries())
+    .map(([area, v]) => ({ area, ...v }))
+    .filter((a) => a.total > 0)
+    .sort((a, b) => b.pending - a.pending || b.total - a.total);
+  const maxAreaPending = Math.max(1, ...pendingByArea.map((a) => a.total));
 
   // Gaps de seguimiento (sin responsable o sin plazo, entre tareas pendientes)
   const gapTasks = tasks.filter(
@@ -488,6 +608,9 @@ function computeDashboard(meetings: StoredMeeting[]) {
     gapTasks,
     byResponsible,
     risksByArea,
+    maxAreaRisk,
+    pendingByArea,
+    maxAreaPending,
     monthly,
     maxMonthlyTasks,
     recurring,
