@@ -68,6 +68,14 @@ Crear `.env.local` en la raíz (NO se commitea — está en `.gitignore`). Ver
 > ni espacios al final (ej. `MASTER_KEY`). En `.env.local` simplemente
 > `MASTER_KEY=LaClaveExacta` sin comillas.
 
+> 🔁 **Rotar `MASTER_KEY` invalida la recuperación master de las minutas ya
+> protegidas** (su "sobre maestro" quedó cifrado con la clave anterior). Es
+> el comportamiento correcto de cualquier esquema con clave maestra rotable.
+> Esas minutas siguen abriéndose con su contraseña individual; para que
+> vuelvan a ser recuperables por master: abrirlas con su clave, "Quitar
+> clave" y "Proteger" de nuevo. Por eso conviene **fijar la `MASTER_KEY`
+> definitiva ANTES** de empezar a proteger minutas en productivo.
+
 > 🔐 Rotar `MASTER_KEY` y regenerar las API keys antes de productivo si los
 > valores actuales circularon en chats/handoffs.
 
