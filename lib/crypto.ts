@@ -9,12 +9,34 @@
 // Requiere secure context (https o localhost) — Vercel siempre es https.
 // =============================================================================
 
+// v1: payload cifrado directo con clave derivada de la password (legacy).
 export interface EncBlob {
   v: 1;
   salt: string; // base64
   iv: string; // base64
   ct: string; // base64
 }
+
+// Sobre cifrado AES-GCM (clave derivada por PBKDF2 de una password).
+export interface WrappedKey {
+  salt: string; // base64
+  iv: string; // base64
+  ct: string; // base64
+}
+
+// v2: envelope con DEK (Data Encryption Key) aleatoria.
+//  - payload cifrado con la DEK
+//  - userWrap: la DEK envuelta con la password del usuario
+//  - masterWrap: la DEK envuelta con la MASTER_KEY (lo hace el server)
+// Cualquiera de las dos (password de usuario o clave maestra) recupera la DEK.
+export interface EncBlobV2 {
+  v: 2;
+  payload: { iv: string; ct: string };
+  userWrap: WrappedKey;
+  masterWrap?: WrappedKey;
+}
+
+export type AnyEnc = EncBlob | EncBlobV2;
 
 const PBKDF2_ITERATIONS = 150_000;
 
@@ -107,4 +129,95 @@ export async function decryptJSON<T = unknown>(
     throw new Error("Contraseña incorrecta.");
   }
   return JSON.parse(new TextDecoder().decode(pt)) as T;
+}
+
+// =============================================================================
+// v2 — envelope con DEK (Data Encryption Key)
+// =============================================================================
+
+// Genera una DEK aleatoria de 256 bits, devuelta como base64.
+export function genDEK(): string {
+  const raw = window.crypto.getRandomValues(new Uint8Array(32));
+  return bufToB64(toArrayBuffer(raw));
+}
+
+async function importDEK(dekB64: string): Promise<CryptoKey> {
+  return getSubtle().importKey(
+    "raw",
+    toArrayBuffer(b64ToBytes(dekB64)),
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+export async function encryptWithDEK(
+  obj: unknown,
+  dekB64: string
+): Promise<{ iv: string; ct: string }> {
+  const subtle = getSubtle();
+  const key = await importDEK(dekB64);
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const data = new TextEncoder().encode(JSON.stringify(obj));
+  const ct = await subtle.encrypt(
+    { name: "AES-GCM", iv: toArrayBuffer(iv) },
+    key,
+    toArrayBuffer(data)
+  );
+  return { iv: bufToB64(toArrayBuffer(iv)), ct: bufToB64(ct) };
+}
+
+export async function decryptWithDEK<T = unknown>(
+  payload: { iv: string; ct: string },
+  dekB64: string
+): Promise<T> {
+  const subtle = getSubtle();
+  const key = await importDEK(dekB64);
+  const pt = await subtle.decrypt(
+    { name: "AES-GCM", iv: toArrayBuffer(b64ToBytes(payload.iv)) },
+    key,
+    toArrayBuffer(b64ToBytes(payload.ct))
+  );
+  return JSON.parse(new TextDecoder().decode(pt)) as T;
+}
+
+// Envuelve (cifra) la DEK con una clave derivada de una password.
+export async function wrapDEK(
+  dekB64: string,
+  password: string
+): Promise<WrappedKey> {
+  const subtle = getSubtle();
+  const salt = window.crypto.getRandomValues(new Uint8Array(16));
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(password, salt);
+  const ct = await subtle.encrypt(
+    { name: "AES-GCM", iv: toArrayBuffer(iv) },
+    key,
+    toArrayBuffer(new TextEncoder().encode(dekB64))
+  );
+  return {
+    salt: bufToB64(toArrayBuffer(salt)),
+    iv: bufToB64(toArrayBuffer(iv)),
+    ct: bufToB64(ct),
+  };
+}
+
+// Recupera la DEK desde un sobre, con la password correspondiente.
+export async function unwrapDEK(
+  wrapped: WrappedKey,
+  password: string
+): Promise<string> {
+  const subtle = getSubtle();
+  const key = await deriveKey(password, b64ToBytes(wrapped.salt));
+  let pt: ArrayBuffer;
+  try {
+    pt = await subtle.decrypt(
+      { name: "AES-GCM", iv: toArrayBuffer(b64ToBytes(wrapped.iv)) },
+      key,
+      toArrayBuffer(b64ToBytes(wrapped.ct))
+    );
+  } catch {
+    throw new Error("Contraseña incorrecta.");
+  }
+  return new TextDecoder().decode(pt);
 }

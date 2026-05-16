@@ -13,7 +13,30 @@
 // =============================================================================
 
 import type { Analysis, Meeting, Participant } from "./types";
-import { encryptJSON, decryptJSON, type EncBlob } from "./crypto";
+import {
+  decryptJSON,
+  genDEK,
+  encryptWithDEK,
+  decryptWithDEK,
+  wrapDEK,
+  unwrapDEK,
+  type EncBlob,
+  type EncBlobV2,
+  type AnyEnc,
+} from "./crypto";
+
+let _masterStatus: boolean | null = null;
+export async function isMasterConfigured(): Promise<boolean> {
+  if (_masterStatus !== null) return _masterStatus;
+  try {
+    const res = await fetch("/api/master/status", { cache: "no-store" });
+    const data = await res.json();
+    _masterStatus = !!data?.configured;
+  } catch {
+    _masterStatus = false;
+  }
+  return _masterStatus;
+}
 
 const STORAGE_KEY = "kir-meeting-agent.history.v1";
 
@@ -39,7 +62,8 @@ export interface StoredMeeting {
   protected?: boolean;
   label?: string; // nombre visible aunque este cifrada
   dateLabel?: string; // fecha visible (YYYY-MM-DD) aunque este cifrada
-  enc?: EncBlob; // MeetingPayload cifrado
+  areaLabel?: string; // area visible aunque este cifrada (para dashboards)
+  enc?: AnyEnc; // MeetingPayload cifrado (v1 password-only o v2 con master)
 }
 
 export function isProtected(m: StoredMeeting): boolean {
@@ -87,12 +111,18 @@ export function getMeeting(id: string): StoredMeeting | null {
   return readAll().find((m) => m.id === id) || null;
 }
 
-export function deleteMeeting(id: string): void {
+// Elimina una minuta. Si hay MASTER_KEY configurada, el server exige la clave
+// (se pasa por header). Solo se borra de localStorage si el server acepto.
+export async function deleteMeeting(id: string, masterKeyInput?: string): Promise<void> {
+  const res = await fetch(`/api/history/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: masterKeyInput ? { "x-master-key": masterKeyInput } : undefined,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `No se pudo eliminar (HTTP ${res.status})`);
+  }
   writeAll(readAll().filter((m) => m.id !== id));
-  // Best-effort: borrar tambien del servidor compartido
-  void fetch(`/api/history/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(
-    () => {}
-  );
 }
 
 export function clearAllMeetings(): void {
@@ -103,8 +133,9 @@ export function clearAllMeetings(): void {
 // Proteccion con clave
 // =============================================================================
 
-// Cifra el contenido de una minuta ya guardada. Deja solo metadata visible
-// (label = nombre, dateLabel = fecha) y guarda el resto en `enc`.
+// Cifra el contenido de una minuta ya guardada (envelope v2 con DEK).
+// La DEK se envuelve con la password del usuario y -si hay MASTER_KEY- tambien
+// con la clave maestra (via server), para recuperacion por admin.
 export async function protectMeeting(id: string, password: string): Promise<void> {
   if (!password || password.length < 4) {
     throw new Error("La contraseña debe tener al menos 4 caracteres.");
@@ -123,13 +154,36 @@ export async function protectMeeting(id: string, password: string): Promise<void
     analysis: m.analysis,
     utteranceCount: m.utteranceCount || 0,
   };
-  const enc = await encryptJSON(payload, password);
+
+  const dek = genDEK();
+  const payloadEnc = await encryptWithDEK(payload, dek);
+  const userWrap = await wrapDEK(dek, password);
+
+  // masterWrap: pedirle al server que envuelva la DEK con la MASTER_KEY.
+  // El server solo ve la DEK (bytes random), nunca el contenido.
+  let masterWrap;
+  try {
+    const res = await fetch("/api/master/wrap", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dek }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.configured && data.masterWrap) masterWrap = data.masterWrap;
+    }
+  } catch {
+    /* sin master: la minuta queda recuperable solo por password de usuario */
+  }
+
+  const enc: EncBlobV2 = { v: 2, payload: payloadEnc, userWrap, masterWrap };
   const locked: StoredMeeting = {
     id: m.id,
     savedAt: Date.now(),
     protected: true,
     label: m.meeting.name || "(sin nombre)",
     dateLabel: m.meeting.date || "",
+    areaLabel: m.meeting.area || "",
     enc,
   };
   all[idx] = locked;
@@ -137,13 +191,21 @@ export async function protectMeeting(id: string, password: string): Promise<void
   pushMeetingToServer(locked);
 }
 
-// Descifra y devuelve el contenido. Lanza si la clave es incorrecta.
+async function decryptStored(enc: AnyEnc, password: string): Promise<MeetingPayload> {
+  if ((enc as EncBlobV2).v === 2) {
+    const e = enc as EncBlobV2;
+    const dek = await unwrapDEK(e.userWrap, password); // throws si clave mala
+    return decryptWithDEK<MeetingPayload>(e.payload, dek);
+  }
+  return decryptJSON<MeetingPayload>(enc as EncBlob, password);
+}
+
+// Descifra con la password de usuario. Lanza si la clave es incorrecta.
 export async function unlockPayload(
   m: StoredMeeting,
   password: string
 ): Promise<MeetingPayload> {
   if (!isProtected(m) || !m.enc) {
-    // No protegida: devolver el contenido tal cual
     return {
       meeting: m.meeting as Meeting,
       participants: m.participants || [],
@@ -151,17 +213,49 @@ export async function unlockPayload(
       utteranceCount: m.utteranceCount || 0,
     };
   }
-  return decryptJSON<MeetingPayload>(m.enc, password);
+  return decryptStored(m.enc, password);
 }
 
-// Quita la proteccion: verifica la clave descifrando y reescribe en claro.
+// Recupera el contenido con la CLAVE MAESTRA (admin). El server desenvuelve la
+// DEK; el descifrado del payload sigue siendo client-side.
+export async function unlockPayloadWithMaster(
+  m: StoredMeeting,
+  masterKeyInput: string
+): Promise<MeetingPayload> {
+  if (!isProtected(m) || !m.enc) {
+    return {
+      meeting: m.meeting as Meeting,
+      participants: m.participants || [],
+      analysis: m.analysis as Analysis,
+      utteranceCount: m.utteranceCount || 0,
+    };
+  }
+  const e = m.enc as EncBlobV2;
+  if (e.v !== 2 || !e.masterWrap) {
+    throw new Error(
+      "Esta minuta se protegió sin clave maestra (versión anterior). Solo se abre con su contraseña individual."
+    );
+  }
+  const res = await fetch("/api/master/unwrap", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key: masterKeyInput, masterWrap: e.masterWrap }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.dek) {
+    throw new Error(data.error || "No se pudo recuperar con la clave maestra.");
+  }
+  return decryptWithDEK<MeetingPayload>(e.payload, data.dek);
+}
+
+// Quita la proteccion: verifica la clave (de usuario) y reescribe en claro.
 export async function removeProtection(id: string, password: string): Promise<void> {
   const all = readAll();
   const idx = all.findIndex((m) => m.id === id);
   if (idx < 0) throw new Error("Minuta no encontrada.");
   const m = all[idx];
   if (!isProtected(m) || !m.enc) throw new Error("La minuta no está protegida.");
-  const payload = await decryptJSON<MeetingPayload>(m.enc, password); // throws si clave mala
+  const payload = await decryptStored(m.enc, password); // throws si clave mala
   const open: StoredMeeting = {
     id: m.id,
     savedAt: Date.now(),

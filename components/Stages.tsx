@@ -16,6 +16,8 @@ import {
   protectMeeting,
   unlockPayload,
   removeProtection,
+  unlockPayloadWithMaster,
+  isMasterConfigured,
   type StoredMeeting,
   type MeetingPayload,
 } from "@/lib/history";
@@ -920,7 +922,23 @@ export function HistoryStage({
   const [toast, setToast] = useState<string | null>(null);
   // Payloads descifrados en memoria para esta sesion (no se persisten)
   const [unlocked, setUnlocked] = useState<Record<string, MeetingPayload>>({});
+  const [masterCfg, setMasterCfg] = useState(false);
+  // Clave maestra cacheada en memoria para esta sesion (no se persiste)
+  const masterKeyRef = useRef<string | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    isMasterConfigured().then(setMasterCfg);
+  }, []);
+
+  // Pide la clave maestra una vez por sesion y la cachea en memoria.
+  const ensureMasterKey = (): string | null => {
+    if (masterKeyRef.current) return masterKeyRef.current;
+    const k = window.prompt("Ingresá la CLAVE MAESTRA:");
+    if (k == null || k === "") return null;
+    masterKeyRef.current = k;
+    return k;
+  };
 
   // Devuelve el contenido en claro de una minuta, o null si esta protegida
   // y todavia no se desbloqueo en esta sesion.
@@ -1009,15 +1027,31 @@ export function HistoryStage({
     setStage("minute");
   };
 
-  const handleDelete = (m: StoredMeeting) => {
+  const handleDelete = async (m: StoredMeeting) => {
     if (!confirm(`¿Eliminar "${titleOf(m)}" del historial? Esta acción no se puede deshacer.`)) return;
-    deleteMeeting(m.id);
-    setUnlocked((u) => {
-      const n = { ...u };
-      delete n[m.id];
-      return n;
-    });
-    refresh();
+    let mk: string | undefined;
+    if (masterCfg) {
+      const k = ensureMasterKey();
+      if (k == null) {
+        showToast("Eliminar requiere la clave maestra.");
+        return;
+      }
+      mk = k;
+    }
+    try {
+      await deleteMeeting(m.id, mk);
+      setUnlocked((u) => {
+        const n = { ...u };
+        delete n[m.id];
+        return n;
+      });
+      refresh();
+      showToast("Minuta eliminada.");
+    } catch (e: any) {
+      // Clave incorrecta: olvidamos la cacheada para permitir reintento
+      masterKeyRef.current = null;
+      showToast(e.message || "No se pudo eliminar.");
+    }
   };
 
   const handleExport = (m: StoredMeeting) => {
@@ -1059,6 +1093,19 @@ export function HistoryStage({
       showToast("Minuta desbloqueada para esta sesión.");
     } catch (e: any) {
       showToast(e.message || "No se pudo desbloquear.");
+    }
+  };
+
+  const handleUnlockMaster = async (m: StoredMeeting) => {
+    const k = ensureMasterKey();
+    if (k == null) return;
+    try {
+      const payload = await unlockPayloadWithMaster(m, k);
+      setUnlocked((u) => ({ ...u, [m.id]: payload }));
+      showToast("Minuta abierta con clave maestra (sesión).");
+    } catch (e: any) {
+      masterKeyRef.current = null; // permitir reingresar si fue incorrecta
+      showToast(e.message || "No se pudo abrir con la clave maestra.");
     }
   };
 
@@ -1179,9 +1226,16 @@ export function HistoryStage({
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   {locked && !open ? (
-                    <Button variant="primary" size="sm" onClick={() => handleUnlock(m)}>
-                      Desbloquear <Chev className="text-white" />
-                    </Button>
+                    <>
+                      <Button variant="primary" size="sm" onClick={() => handleUnlock(m)}>
+                        Desbloquear <Chev className="text-white" />
+                      </Button>
+                      {masterCfg && (
+                        <Button variant="ghost" size="sm" onClick={() => handleUnlockMaster(m)}>
+                          Abrir con master
+                        </Button>
+                      )}
+                    </>
                   ) : (
                     <>
                       <Button variant="ghost" size="sm" onClick={() => handleLoad(m)}>

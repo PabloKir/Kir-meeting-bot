@@ -4,13 +4,27 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getRedis, HISTORY_KEY } from "@/lib/kv";
+import { masterKey, verifyMasterKey } from "@/lib/server-crypto";
 
 export const runtime = "nodejs";
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // Gate de borrado: si hay MASTER_KEY configurada, exigir clave valida.
+  if (masterKey()) {
+    const key =
+      req.headers.get("x-master-key") ||
+      new URL(req.url).searchParams.get("key") ||
+      "";
+    if (!verifyMasterKey(key)) {
+      return NextResponse.json(
+        { error: "Clave maestra requerida o incorrecta para eliminar." },
+        { status: 403 }
+      );
+    }
+  }
   const redis = getRedis();
   if (!redis) {
     return NextResponse.json({ configured: false, ok: false });
