@@ -109,6 +109,11 @@ por navegador y el dashboard solo ve lo local.
 Probar el flujo end-to-end: Setup → Captura (subir un audio corto) →
 Análisis → Minuta → Exportar PDF → Distribuir (si SMTP).
 
+➡️ **Seguir el checklist paso a paso en `VALIDATION.md`** (incluye comandos
+curl de healthcheck, golden path, prueba de clave maestra y tabla de
+"si falla → qué hacer"). Correrlo completo antes de habilitar a la
+organización.
+
 ---
 
 ## 6. Arquitectura — puntos clave
