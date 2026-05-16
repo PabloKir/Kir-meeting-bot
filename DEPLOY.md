@@ -40,11 +40,12 @@ location / {
 }
 ```
 
-pm2:
+pm2 (hay un `ecosystem.config.js` listo en la raíz):
 
 ```bash
-pm2 start npm --name kir-meeting-agent -- run start
-pm2 save && pm2 startup
+mkdir -p logs
+pm2 start ecosystem.config.js --env production
+pm2 save && pm2 startup     # arranque automático al bootear el VPS
 ```
 
 ---
