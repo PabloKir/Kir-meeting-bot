@@ -35,9 +35,20 @@ export async function POST(req: NextRequest) {
     const dek = unwrapWithMaster(masterWrap);
     return NextResponse.json({ ok: true, dek });
   } catch (e: any) {
+    // verifyMasterKey ya pasó (la clave ingresada es la actual). Si el
+    // descifrado GCM falla, esta minuta fue protegida con una MASTER_KEY
+    // distinta (típicamente: se protegió ANTES de rotar/corregir la clave).
+    const raw = String(e?.message || e);
+    const isAuthFail =
+      /unable to authenticate|unsupported state|bad decrypt|auth/i.test(raw);
     return NextResponse.json(
-      { error: "No se pudo recuperar la clave de la minuta: " + (e.message || e) },
-      { status: 500 }
+      {
+        error: isAuthFail
+          ? "La clave maestra es correcta, pero esta minuta se protegió con una clave maestra anterior (se rotó la MASTER_KEY después). No es recuperable por master. Abrila con su contraseña individual (DESBLOQUEAR) y volvé a protegerla para que quede recuperable con la clave maestra actual."
+          : "No se pudo recuperar con la clave maestra: " + raw,
+        code: isAuthFail ? "STALE_MASTER_WRAP" : "UNWRAP_ERROR",
+      },
+      { status: isAuthFail ? 409 : 500 }
     );
   }
 }
