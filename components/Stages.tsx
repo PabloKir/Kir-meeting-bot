@@ -156,7 +156,9 @@ export function ClosureStage({ onBack, onNext }: { onBack: () => void; onNext: (
   const responsibles = participants.filter((p) => p.canBeResponsible);
   const tasks = analysis.tasks;
   const sinResp = tasks.filter((t) => !t.responsible || /pendiente/i.test(t.responsible)).length;
-  const sinPlazo = tasks.filter((t) => !t.deadline || /pendiente|por definir/i.test(t.deadline)).length;
+  const sinPlazo = tasks.filter(
+    (t) => !t.dueDate && (!t.deadline || /pendiente|por definir/i.test(t.deadline))
+  ).length;
   const confirmadas = tasks.filter((t) => t.confirmed).length;
   const blocked = sinResp + sinPlazo;
 
@@ -193,7 +195,7 @@ export function ClosureStage({ onBack, onNext }: { onBack: () => void; onNext: (
       <BracketedCard>
         <CardHead title="Tareas asignadas — validar" id="FOG-11 / 04" />
 
-        <div className="grid grid-cols-[30px_1fr_180px_140px_100px_40px] gap-2 font-display uppercase text-kir-gris border-b border-kir-negro pb-2 mb-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>
+        <div className="grid grid-cols-[30px_1fr_170px_170px_90px_40px] gap-2 font-display uppercase text-kir-gris border-b border-kir-negro pb-2 mb-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>
           <div>#</div>
           <div>Tarea</div>
           <div>Responsable</div>
@@ -206,7 +208,7 @@ export function ClosureStage({ onBack, onNext }: { onBack: () => void; onNext: (
           <div className="py-6 text-center text-kir-gris italic">— Sin tareas detectadas —</div>
         ) : (
           tasks.map((t, i) => (
-            <div key={i} className="grid grid-cols-[30px_1fr_180px_140px_100px_40px] gap-2 items-center py-2 border-b border-kir-gris-border">
+            <div key={i} className="grid grid-cols-[30px_1fr_170px_170px_90px_40px] gap-2 items-center py-2 border-b border-kir-gris-border">
               <div className="font-mono text-[11px] text-kir-gris">{String(i + 1).padStart(2, "0")}</div>
               <input className="kir-input" style={{ padding: "6px 8px", fontSize: 13 }} value={t.text} onChange={(e) => updateTask(i, { text: e.target.value })} />
               <select
@@ -223,13 +225,29 @@ export function ClosureStage({ onBack, onNext }: { onBack: () => void; onNext: (
                   <option value={t.responsible}>{t.responsible}</option>
                 )}
               </select>
-              <input
-                className={`kir-input ${(!t.deadline || /pendiente|por definir/i.test(t.deadline)) ? "border-kir-rojo" : ""}`}
-                style={{ padding: "6px 8px", fontSize: 13 }}
-                value={t.deadline || ""}
-                onChange={(e) => updateTask(i, { deadline: e.target.value })}
-                placeholder="DD/MM/AAAA"
-              />
+              <div className="flex flex-col gap-1">
+                <input
+                  type="date"
+                  className={`kir-input ${(!t.dueDate && (!t.deadline || /pendiente|por definir/i.test(t.deadline))) ? "border-kir-rojo" : ""}`}
+                  style={{ padding: "5px 6px", fontSize: 12 }}
+                  value={t.dueDate || ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const human = v
+                      ? (() => { const [y, m, d] = v.split("-"); return `${d}/${m}/${y}`; })()
+                      : t.deadline;
+                    updateTask(i, { dueDate: v || null, deadline: human || null });
+                  }}
+                />
+                <input
+                  className="kir-input"
+                  style={{ padding: "4px 6px", fontSize: 11 }}
+                  value={t.dueDate ? "" : (t.deadline || "")}
+                  onChange={(e) => updateTask(i, { deadline: e.target.value })}
+                  placeholder={t.dueDate ? "(fecha fijada arriba)" : "o texto: Próxima reunión"}
+                  disabled={!!t.dueDate}
+                />
+              </div>
               <select
                 className="kir-input"
                 style={{ padding: "6px 8px", fontSize: 13 }}
@@ -247,7 +265,7 @@ export function ClosureStage({ onBack, onNext }: { onBack: () => void; onNext: (
 
         <div className="mt-4">
           <Button variant="ghost" size="sm" onClick={() => addTask({
-            text: "", responsible: null, deadline: null, priority: "Media", status: "Pendiente", confirmed: false,
+            text: "", responsible: null, deadline: null, dueDate: null, priority: "Media", status: "Pendiente", confirmed: false,
           })}>
             Agregar tarea manual <Chev />
           </Button>
@@ -278,6 +296,16 @@ function Stat({ label, value, alert, ok, last }: { label: string; value: number;
       </div>
     </div>
   );
+}
+
+// Plazo a mostrar: prioriza la fecha estructurada (dueDate) formateada
+// dd/mm/aaaa; si no, el texto libre (deadline); si no, un fallback.
+function plazoOf(t: { dueDate?: string | null; deadline?: string | null }, fallback = "Por definir"): string {
+  if (t.dueDate) {
+    const [y, m, d] = t.dueDate.split("-");
+    return `${d}/${m}/${y}`;
+  }
+  return t.deadline || fallback;
 }
 
 // =============================================================================
@@ -368,7 +396,7 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
     lines.push("── 06 · TAREAS Y RESPONSABLES ────────────────────────────────");
     A.tasks.forEach((t, i) => {
       lines.push(`  ${String(i + 1).padStart(2, "0")}. ${t.text}`);
-      lines.push(`      → ${t.responsible || "PENDIENTE"} · ${t.deadline || "POR DEFINIR"} · ${t.priority} · ${t.status}`);
+      lines.push(`      → ${t.responsible || "PENDIENTE"} · ${plazoOf(t, "POR DEFINIR")} · ${t.priority} · ${t.status}`);
     });
     if (A.tasks.length === 0) lines.push("  — Sin tareas —");
     lines.push("");
@@ -608,7 +636,7 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
                   <td>{String(i + 1).padStart(2, "0")}</td>
                   <td>{t.text}</td>
                   <td><b>{t.responsible || "Pendiente"}</b></td>
-                  <td>{t.deadline || "Por definir"}</td>
+                  <td>{plazoOf(t)}</td>
                   <td>{t.priority}</td>
                   <td>{t.status}</td>
                 </tr>
@@ -720,7 +748,7 @@ function buildFog11HTML(meeting: any, participants: any[], analysis: any): strin
       <td class="num-cell">${String(i + 1).padStart(2, "0")}.-</td>
       <td>${E(t.text)}${t.priority === "Alta" ? ' <span class="prio-alta">[PRIORIDAD ALTA]</span>' : ""}</td>
       <td class="r-cell">${E(initials)}</td>
-      <td class="plazo-cell">${E(t.deadline) || "Inmediato"}</td>
+      <td class="plazo-cell">${E(plazoOf(t, "Inmediato"))}</td>
     </tr>`;
   }).join("");
 

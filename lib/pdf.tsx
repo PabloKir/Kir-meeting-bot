@@ -382,7 +382,11 @@ function MinuteDocument({ meeting, participants, analysis, logoUrl, minuteId }: 
                         {t.priority === "Alta" ? <Text style={s.prioAlta}>  [ALTA]</Text> : null}
                       </Text>
                       <Text style={[s.td, s.cR]}>{ini}</Text>
-                      <Text style={[s.td, s.cPlazo]}>{t.deadline || "Inmediato"}</Text>
+                      <Text style={[s.td, s.cPlazo]}>
+                        {t.dueDate
+                          ? (() => { const [y, m, d] = t.dueDate!.split("-"); return `${d}/${m}/${y}`; })()
+                          : t.deadline || "Inmediato"}
+                      </Text>
                     </View>
                   );
                 })}
