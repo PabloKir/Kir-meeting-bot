@@ -1,14 +1,23 @@
 // =============================================================================
-// POST /api/analyze
+// POST /api/analyze  (asíncrono)
 // =============================================================================
-// Recibe meeting + participants + utterances diarizadas + speakerMap.
-// Llama a Claude (Sonnet 4) con un prompt estructurado y devuelve:
-//   - analysis: { executiveSummary, topics, decisions, tasks, risks, ... }
-//   - questions: ambigüedades que el agente quiere confirmar al usuario
+// La llamada a Claude tarda 1-3 min en reuniones grandes. Detrás de
+// Cloudflare + oauth2-proxy hay timeouts cortos (30-100s) que cortaban la
+// request síncrona con 502. Solución: el POST arranca el trabajo y devuelve
+// un { jobId } al instante; Claude corre en background con waitUntil() y el
+// resultado se guarda en KV (Redis). El cliente hace polling a
+// GET /api/analyze/[id]. Ninguna request individual es larga → ningún
+// proxy/Cloudflare la corta.
+//
+// Fallback: si NO hay KV configurado (dev local sin Redis), se ejecuta de
+// forma síncrona y se devuelve { analysis, questions } como antes.
 // =============================================================================
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
+import { waitUntil } from "@vercel/functions";
 import Anthropic from "@anthropic-ai/sdk";
+import { getRedis } from "@/lib/kv";
 import type {
   AnalyzeRequest,
   AnalyzeResponse,
@@ -17,29 +26,29 @@ import type {
 } from "@/lib/types";
 
 export const runtime = "nodejs";
-// 300s = maximo en Vercel Pro (default Hobby es 60s). Reuniones largas con
-// transcripts grandes pueden tardar 1-3 minutos en Claude Sonnet.
+// 300s = máximo en Vercel Pro. El trabajo en background corre acá adentro;
+// el POST/GET en sí responden en milisegundos.
 export const maxDuration = 300;
 
-export async function POST(req: NextRequest) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY no configurada en el servidor" },
-      { status: 500 }
-    );
-  }
+const JOB_TTL = 3600; // seg — los jobs viven 1h en KV
+const jobKey = (id: string) => `kir:analyze:${id}`;
 
-  let body: AnalyzeRequest;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Body JSON inválido" }, { status: 400 });
-  }
+interface AnalyzeJob {
+  status: "processing" | "completed" | "error";
+  createdAt: number;
+  analysis?: Analysis;
+  questions?: AnalyzeResponse["questions"];
+  error?: string;
+}
+
+// Núcleo: arma el prompt, llama a Claude, normaliza y genera preguntas.
+// Lanza si Claude falla o la API key no está.
+async function runAnalysis(body: AnalyzeRequest): Promise<AnalyzeResponse> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY no configurada en el servidor");
 
   const { meeting, participants, utterances, speakerMap, manualNotes } = body;
 
-  // Construir transcript atribuido para Claude
   const idToName: Record<string, string> = {};
   participants.forEach((p) => (idToName[p.id] = p.name));
 
@@ -65,62 +74,119 @@ export async function POST(req: NextRequest) {
   });
 
   const model = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";
+  const anthropic = new Anthropic({ apiKey });
+  const msg = await anthropic.messages.create({
+    model,
+    max_tokens: 4096,
+    messages: [{ role: "user", content: prompt }],
+  });
 
-  try {
-    const anthropic = new Anthropic({ apiKey });
-    const msg = await anthropic.messages.create({
-      model,
-      max_tokens: 4096,
-      messages: [{ role: "user", content: prompt }],
-    });
+  const textBlock = msg.content.find((c: any) => c.type === "text") as any;
+  const raw = textBlock?.text || "";
+  const parsed = parseClaudeJSON(raw);
 
-    // Extraer texto
-    const textBlock = msg.content.find((c: any) => c.type === "text") as any;
-    const raw = textBlock?.text || "";
+  const analysis: Analysis = {
+    executiveSummary: parsed.executiveSummary || "",
+    topics: Array.isArray(parsed.topics) ? parsed.topics : [],
+    decisions: Array.isArray(parsed.decisions) ? parsed.decisions : [],
+    tasks: Array.isArray(parsed.tasks)
+      ? parsed.tasks.map((t: any) => ({
+          text: t.text || "",
+          responsible: t.responsible || null,
+          responsibleParticipantId: matchParticipantId(t.responsible, participants),
+          deadline: t.deadline || null,
+          priority: ["Alta", "Media", "Baja"].includes(t.priority) ? t.priority : "Media",
+          status: ["Pendiente", "En curso", "Completado"].includes(t.status) ? t.status : "Pendiente",
+          confirmed: false,
+          requestedBy: t.requestedBy || null,
+        }))
+      : [],
+    risks: Array.isArray(parsed.risks)
+      ? parsed.risks.map((r: any) => ({
+          text: r.text || "",
+          level: ["Alta", "Media", "Baja"].includes(r.level) ? r.level : "Media",
+          mitigation: r.mitigation || null,
+        }))
+      : [],
+    openQuestions: Array.isArray(parsed.openQuestions) ? parsed.openQuestions : [],
+    nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [],
+  };
 
-    // Parsear JSON
-    const parsed = parseClaudeJSON(raw);
+  const questions = generateQuestions(analysis, participants);
+  return { analysis, questions };
+}
 
-    // Validar/normalizar
-    const analysis: Analysis = {
-      executiveSummary: parsed.executiveSummary || "",
-      topics: Array.isArray(parsed.topics) ? parsed.topics : [],
-      decisions: Array.isArray(parsed.decisions) ? parsed.decisions : [],
-      tasks: Array.isArray(parsed.tasks)
-        ? parsed.tasks.map((t: any) => ({
-            text: t.text || "",
-            responsible: t.responsible || null,
-            responsibleParticipantId: matchParticipantId(t.responsible, participants),
-            deadline: t.deadline || null,
-            priority: ["Alta", "Media", "Baja"].includes(t.priority) ? t.priority : "Media",
-            status: ["Pendiente", "En curso", "Completado"].includes(t.status) ? t.status : "Pendiente",
-            confirmed: false,
-            requestedBy: t.requestedBy || null,
-          }))
-        : [],
-      risks: Array.isArray(parsed.risks)
-        ? parsed.risks.map((r: any) => ({
-            text: r.text || "",
-            level: ["Alta", "Media", "Baja"].includes(r.level) ? r.level : "Media",
-            mitigation: r.mitigation || null,
-          }))
-        : [],
-      openQuestions: Array.isArray(parsed.openQuestions) ? parsed.openQuestions : [],
-      nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [],
-    };
-
-    // Generar preguntas para ambigüedades
-    const questions = generateQuestions(analysis, participants);
-
-    const response: AnalyzeResponse = { analysis, questions };
-    return NextResponse.json(response);
-  } catch (e: any) {
-    console.error("Claude analyze error:", e);
+export async function POST(req: NextRequest) {
+  if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
-      { error: "Error en Claude API: " + (e.message || e) },
+      { error: "ANTHROPIC_API_KEY no configurada en el servidor" },
+      { status: 500 }
+    );
+  }
+
+  let body: AnalyzeRequest;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Body JSON inválido" }, { status: 400 });
+  }
+
+  const redis = getRedis();
+
+  // Sin KV: modo síncrono (dev local). Puede tardar; aceptable sin proxy.
+  if (!redis) {
+    try {
+      const result = await runAnalysis(body);
+      return NextResponse.json(result);
+    } catch (e: any) {
+      console.error("Claude analyze error (sync):", e);
+      return NextResponse.json(
+        { error: "Error en Claude API: " + (e.message || e) },
+        { status: 502 }
+      );
+    }
+  }
+
+  // Con KV: job async + polling.
+  const jobId = randomUUID();
+  const initial: AnalyzeJob = { status: "processing", createdAt: Date.now() };
+  try {
+    await redis.set(jobKey(jobId), JSON.stringify(initial), { ex: JOB_TTL });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: "No se pudo registrar el trabajo de análisis: " + (e.message || e) },
       { status: 502 }
     );
   }
+
+  // Corre Claude después de responder. waitUntil mantiene viva la función
+  // (hasta maxDuration) sin bloquear la respuesta HTTP.
+  waitUntil(
+    (async () => {
+      try {
+        const result = await runAnalysis(body);
+        const done: AnalyzeJob = {
+          status: "completed",
+          createdAt: initial.createdAt,
+          analysis: result.analysis,
+          questions: result.questions,
+        };
+        await redis.set(jobKey(jobId), JSON.stringify(done), { ex: JOB_TTL });
+      } catch (e: any) {
+        console.error("Claude analyze error (job):", e);
+        const fail: AnalyzeJob = {
+          status: "error",
+          createdAt: initial.createdAt,
+          error: "Error en Claude API: " + (e?.message || e),
+        };
+        await redis
+          .set(jobKey(jobId), JSON.stringify(fail), { ex: JOB_TTL })
+          .catch(() => {});
+      }
+    })()
+  );
+
+  return NextResponse.json({ jobId, status: "processing" });
 }
 
 // =============================================================================

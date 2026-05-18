@@ -60,15 +60,60 @@ export function AnalysisStage({ onBack, onNext }: { onBack: () => void; onNext: 
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         let msg = e.error || `HTTP ${res.status}`;
-        if (res.status === 504 || res.status === 408) {
-          msg = "El analisis tardo mas del limite del servidor (timeout). Probá REINTENTAR — la transcripción NO se perdió, está guardada localmente. Si vuelve a fallar consistentemente, hay que cambiar el modelo a Haiku o partir la transcripción en partes.";
+        if (res.status === 504 || res.status === 408 || res.status === 502) {
+          msg = "El servidor cortó la solicitud (timeout/proxy). Probá REINTENTAR — la transcripción NO se perdió, está guardada localmente.";
         }
         throw new Error(msg);
       }
       const data = await res.json();
-      setAnalysis(data.analysis);
-      setQuestions(data.questions || []);
-      markDone("analysis");
+
+      // Modo síncrono (sin KV): la respuesta ya trae el análisis.
+      if (data.analysis) {
+        setAnalysis(data.analysis);
+        setQuestions(data.questions || []);
+        markDone("analysis");
+        return;
+      }
+
+      // Modo asíncrono: polling del job hasta completed/error.
+      if (data.jobId) {
+        const jobId: string = data.jobId;
+        const started = Date.now();
+        const MAX_MS = 6 * 60 * 1000; // tope de seguridad: 6 min
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          await new Promise((r) => setTimeout(r, 3000));
+          if (Date.now() - started > MAX_MS) {
+            throw new Error(
+              "El análisis está tardando demasiado. La transcripción sigue guardada — probá REINTENTAR."
+            );
+          }
+          let pr: Response;
+          try {
+            pr = await fetch(`/api/analyze/${jobId}`, { cache: "no-store" });
+          } catch {
+            continue; // corte de red transitorio: seguimos intentando
+          }
+          const pj = await pr.json().catch(() => ({}));
+          if (pj.status === "completed") {
+            setAnalysis(pj.analysis);
+            setQuestions(pj.questions || []);
+            markDone("analysis");
+            return;
+          }
+          if (pj.status === "error" || (!pr.ok && pr.status !== 404)) {
+            throw new Error(pj.error || `Error en análisis (HTTP ${pr.status})`);
+          }
+          if (pr.status === 404) {
+            throw new Error(
+              pj.error || "El trabajo expiró. Reintentá el análisis."
+            );
+          }
+          // status === "processing" → seguir esperando
+        }
+      }
+
+      throw new Error("Respuesta inesperada del servidor de análisis.");
     } catch (e: any) {
       let msg = e.message || "Error en analisis";
       // Network errors / connection drop tambien dejan la transcripcion intacta
