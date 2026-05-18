@@ -317,6 +317,11 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
   const analysis = useStore((s) => s.analysis);
   const capture = useStore((s) => s.capture);
   const markDone = useStore((s) => s.markDone);
+  const setMeeting = useStore((s) => s.setMeeting);
+  const setParticipants = useStore((s) => s.setParticipants);
+  const setAnalysis = useStore((s) => s.setAnalysis);
+  const setStage = useStore((s) => s.setStage);
+  const resetSession = useStore((s) => s.reset);
   const [editing, setEditing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [distOpen, setDistOpen] = useState(false);
@@ -356,6 +361,47 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
     if (!iso) return "—";
     const [y, m, d] = iso.split("-");
     return `${d}/${m}/${y}`;
+  };
+
+  // D.03.10 — pre-armado de la próxima minuta con los compromisos abiertos
+  const buildNextMinute = () => {
+    const open = analysis.tasks.filter((t) => !/complet/i.test(t.status || ""));
+    if (open.length === 0) {
+      showToast("No hay compromisos abiertos para arrastrar a una próxima minuta.");
+      return;
+    }
+    if (
+      !confirm(
+        `Crear una nueva minuta de seguimiento arrastrando ${open.length} compromiso(s) abierto(s)? Se reinicia la sesión actual (esta minuta ya quedó guardada en el Historial).`
+      )
+    )
+      return;
+    const today = new Date().toISOString().slice(0, 10);
+    const prevName = meeting.name;
+    const prevDate = fmtDate(meeting.date);
+    resetSession();
+    setMeeting({
+      name: `Seguimiento — ${prevName}`.slice(0, 120),
+      date: today,
+      time: new Date().toTimeString().slice(0, 5),
+      area: meeting.area,
+      objective: `Seguimiento de compromisos abiertos de "${prevName}" (${prevDate}).`,
+      type: "seguimiento",
+      formality: meeting.formality,
+      expectedDuration: "30",
+      expectedResults: ["tareas"],
+    });
+    setParticipants(participants.map((p) => ({ ...p })));
+    setAnalysis({
+      executiveSummary: `Reunión de seguimiento. Se arrastran ${open.length} compromiso(s) abierto(s) de la minuta "${prevName}" (${prevDate}).`,
+      topics: [],
+      decisions: [],
+      tasks: open.map((t) => ({ ...t, confirmed: false, status: "Pendiente" as const })),
+      risks: [],
+      openQuestions: [],
+      nextSteps: [],
+    });
+    setStage("closure");
   };
 
   const asistentes = participants.filter((p) => p.attended);
@@ -524,6 +570,7 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
           <ToolBtn onClick={copyToClipboard}>Copiar</ToolBtn>
           <ToolBtn onClick={() => downloadFile(minuteAsText(), "txt", "text/plain")}>.txt</ToolBtn>
           <ToolBtn onClick={() => openPrintWindow(buildFog11HTML(meeting, participants, analysis))}>Exportar PDF</ToolBtn>
+          <ToolBtn onClick={buildNextMinute}>Próxima minuta »</ToolBtn>
           <ToolBtn onClick={openDistribute}>Distribuir »»</ToolBtn>
         </div>
       </div>
