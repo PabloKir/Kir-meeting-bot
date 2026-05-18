@@ -74,7 +74,9 @@ Crear `.env.local` en la raíz (NO se commitea — está en `.gitignore`). Ver
 | `CLAUDE_MODEL` | No | Modelo de Claude. Default `claude-sonnet-4-6`. `claude-haiku-4-5` = más rápido/barato |
 | `KV_REST_API_URL` + `KV_REST_API_TOKEN` | **Sí** (detrás de proxy) | Historial compartido (ver §4) **y backend del análisis asíncrono** (ver §6). Sin KV, `/api/analyze` cae a modo síncrono — sirve solo en local; detrás de Cloudflare/oauth2-proxy con timeout corto daría 502 en reuniones largas |
 | `MASTER_KEY` | Recomendada | Clave maestra admin: gatea el borrado de minutas y permite abrir cualquier minuta protegida. Sin esto, el borrado no pide clave y las minutas protegidas solo se abren con su clave individual |
-| `SMTP_HOST` `SMTP_PORT` `SMTP_USER` `SMTP_PASS` `SMTP_FROM` | Para distribución | Envío de la minuta por email con PDF FOG-11 adjunto (`/api/distribute`). `SMTP_SECURE=true` solo si puerto 465 |
+| `RESEND_API_KEY` + `RESEND_FROM` | Para distribución | Envío de la minuta (PDF FOG-11 firmado) por email vía **Resend** (`/api/distribute`). `RESEND_FROM` debe usar un dominio verificado en Resend (SPF+DKIM por DNS). Reemplaza al viejo SMTP/nodemailer |
+| `SLACK_WEBHOOK_URL` | Opcional | Incoming Webhook: al distribuir, postea un resumen al canal. Sin esto, se omite Slack |
+| `CRON_SECRET` | Para follow-up | Protege `/api/cron/follow-up` (recordatorios automáticos D.03.10). En Vercel + `vercel.json` el cron diario lo usa solo; en VPS, el cron del sistema debe mandar `Authorization: Bearer <CRON_SECRET>` |
 
 > ⚠️ **Cuidado con el valor exacto de las claves**: no dejar saltos de línea
 > ni espacios al final (ej. `MASTER_KEY`). En `.env.local` simplemente
@@ -152,6 +154,18 @@ organización.
   ese tope; el job corre en el proceso Node hasta terminar. `waitUntil` de
   `@vercel/functions` es un no-op seguro fuera de Vercel (la promesa igual
   se ejecuta), así que el patrón job+polling funciona igual en el VPS.
+- **Distribución (D.03.04)**: `/api/distribute` genera el PDF FOG-11 con
+  **sello de integridad** (SHA-256 del contenido canónico + ID + bloque de
+  firmas) y lo manda por **Resend** (email) y opcionalmente postea un
+  resumen a **Slack** (webhook). No es firma X.509: es huella verificable.
+- **Follow-up (D.03.10)**: tareas con `dueDate` (selector en C.01 Cierre).
+  `GET /api/cron/follow-up` (protegido por `CRON_SECRET`) corre a diario
+  (Vercel Cron vía `vercel.json`; en VPS, cron del sistema) y manda un
+  digest por Resend a cada responsable con sus tareas vencidas / por vencer
+  en 48h. Dedupe diario en KV. Botón "Próxima minuta »" arrastra los
+  compromisos abiertos a una nueva minuta de seguimiento.
+- **Cron en VPS** (no-Vercel): agregar al crontab, ej. diario 09:00:
+  `0 9 * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://APP/api/cron/follow-up`
 - Todo en español, identidad visual KIR (`public/kir-logo.png`).
 
 ---

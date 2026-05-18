@@ -48,11 +48,20 @@ Reemplazá `https://APP` por la URL real (ej. `https://minuta.kir.com.ar`).
 - [ ] **Abrir con master** con la `MASTER_KEY` → abre la misma minuta sin la clave individual
 - [ ] **Eliminar** una minuta → pide la `MASTER_KEY`; con clave incorrecta NO borra; con la correcta borra (local + server)
 
-## 5. Distribución por email (si SMTP configurado)
+## 5. Distribución por email (si Resend configurado)
 
 - [ ] En C.02 Minuta → **Distribuir** → destinatarios pre-cargados con los emails de participantes
-- [ ] Enviar → llega el email con el **PDF FOG-11 adjunto** a la casilla de prueba
-- [ ] Si SMTP NO está configurado: el botón da error 500 con mensaje claro y **el resto de la app sigue funcionando** (esperado)
+- [ ] Enviar → llega el email (Resend) con el **PDF FOG-11 adjunto**; el PDF tiene el bloque **VALIDACIÓN E INTEGRIDAD** (ID + SHA-256 + firmas)
+- [ ] Con `SLACK_WEBHOOK_URL` y el checkbox tildado → llega el resumen al canal de Slack
+- [ ] Si `RESEND_API_KEY`/`RESEND_FROM` NO están: el botón da error 500 claro y el resto de la app sigue funcionando (esperado)
+
+## 5b. Follow-up automático (D.03.10) — si `CRON_SECRET` configurado
+
+- [ ] En C.01 Cierre, cada tarea tiene **selector de fecha** (dueDate); la fecha se ve en la minuta y el PDF
+- [ ] Disparo manual del cron: `curl -H "Authorization: Bearer <CRON_SECRET>" https://APP/api/cron/follow-up` → responde `{ ok:true, responsablesNotificados, ... }`
+- [ ] Con una tarea pendiente, con `dueDate` ≤ hoy+2d y un participante responsable con email → llega el email-digest a ese responsable
+- [ ] Segunda corrida el mismo día → `omitidosPorDedupe` > 0 (no re-spamea)
+- [ ] Botón **"Próxima minuta »"** en C.02 → crea minuta de seguimiento con los compromisos abiertos y salta a C.01
 
 ## 6. Dashboard (D.02)
 
@@ -73,6 +82,7 @@ Reemplazá `https://APP` por la URL real (ej. `https://minuta.kir.com.ar`).
 | El job "se queda en processing" para siempre | El proceso que corre Claude (waitUntil) murió: revisar `pm2 logs` y memoria (`max_memory_restart`). Reintentar el análisis genera un job nuevo |
 | Historial no se comparte entre dispositivos | KV no configurado o credenciales mal. Ver `DEPLOY.md` §4 |
 | El logo no aparece en el PDF | nginx no pasa `X-Forwarded-Proto`; o `public/kir-logo.png` no se desplegó |
-| Email no sale | Revisar SMTP_* en `.env.local`; `SMTP_SECURE=true` solo si puerto 465 |
+| Email no sale | Revisar `RESEND_API_KEY` y que `RESEND_FROM` use un **dominio verificado** en Resend (SPF+DKIM OK). Ver logs de la respuesta de `/api/distribute` |
+| Cron no manda recordatorios | `CRON_SECRET` no seteada o el cron no manda el header correcto. Probar el curl manual del paso 5b. En Vercel, ver Deployments → Crons |
 
 Logs de la app: `pm2 logs kir-meeting-agent` (o `./logs/pm2-*.log`).
