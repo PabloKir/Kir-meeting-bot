@@ -67,6 +67,7 @@ export interface Task {
   responsible: string | null;
   responsibleParticipantId?: string | null;
   deadline: string | null;
+  dueDate?: string | null; // fecha estructurada ISO yyyy-mm-dd (para recordatorios)
   priority: "Alta" | "Media" | "Baja";
   status: "Pendiente" | "En curso" | "Completado";
   confirmed: boolean;

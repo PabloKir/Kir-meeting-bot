@@ -6,6 +6,7 @@
 // =============================================================================
 
 import React from "react";
+import crypto from "node:crypto";
 import {
   Document,
   Page,
@@ -16,6 +17,64 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 import type { Analysis, Meeting, Participant } from "./types";
+
+// =============================================================================
+// Sello de integridad ("PDF firmado"): SHA-256 sobre el contenido canónico de
+// la minuta + ID + fecha de emisión. No es firma criptográfica X.509: es una
+// huella de integridad verificable (si alguien edita el PDF, el hash deja de
+// coincidir con el contenido). Liviano, sin certificados.
+// =============================================================================
+export interface MinuteIntegrity {
+  minuteId: string;
+  hash: string; // sha256 hex
+  issuedAt: string; // ISO
+}
+
+export function computeIntegrity(
+  meeting: Meeting,
+  participants: Participant[],
+  analysis: Analysis,
+  minuteId?: string
+): MinuteIntegrity {
+  // Objeto canónico en orden fijo para que el hash sea reproducible.
+  const canonical = JSON.stringify({
+    meeting: {
+      name: meeting.name,
+      date: meeting.date,
+      time: meeting.time,
+      area: meeting.area,
+      objective: meeting.objective,
+      type: meeting.type,
+    },
+    participants: participants.map((p) => ({
+      name: p.name,
+      initials: p.initials,
+      role: p.role,
+      attended: p.attended,
+    })),
+    analysis: {
+      executiveSummary: analysis.executiveSummary,
+      topics: analysis.topics,
+      decisions: analysis.decisions,
+      tasks: analysis.tasks.map((t) => ({
+        text: t.text,
+        responsible: t.responsible,
+        deadline: t.deadline,
+        dueDate: t.dueDate ?? null,
+        priority: t.priority,
+        status: t.status,
+      })),
+      risks: analysis.risks,
+      openQuestions: analysis.openQuestions,
+      nextSteps: analysis.nextSteps,
+    },
+  });
+  const hash = crypto.createHash("sha256").update(canonical, "utf8").digest("hex");
+  const id =
+    minuteId ||
+    `KIR-${(meeting.date || "").replace(/-/g, "")}-${hash.slice(0, 8).toUpperCase()}`;
+  return { minuteId: id, hash, issuedAt: new Date().toISOString() };
+}
 
 const NEGRO = "#222222";
 const GRIS = "#98989A";
@@ -117,6 +176,28 @@ const s = StyleSheet.create({
   liBullet: { color: TEAL, fontFamily: "Helvetica-Bold", marginRight: 6 },
   liText: { flexGrow: 1, flexBasis: 0 },
   prioAlta: { color: ROJO, fontFamily: "Helvetica-Bold", fontSize: 7.5 },
+  sello: {
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: TEAL,
+    backgroundColor: "#f3f8f7",
+    padding: 8,
+  },
+  selloH: {
+    fontFamily: "Helvetica-Bold",
+    fontSize: 8,
+    color: TEAL,
+    marginBottom: 4,
+    letterSpacing: 1,
+  },
+  selloRow: { flexDirection: "row", marginBottom: 2 },
+  selloK: { width: "28%", fontFamily: "Helvetica-Bold", fontSize: 7.5, color: GRIS },
+  selloV: { width: "72%", fontSize: 7.5 },
+  selloHash: { fontFamily: "Courier", fontSize: 7, color: NEGRO },
+  firmaRow: { flexDirection: "row", marginTop: 10, justifyContent: "space-between" },
+  firmaBox: { width: "46%" },
+  firmaLine: { borderTopWidth: 1, borderTopColor: NEGRO, marginTop: 22, paddingTop: 3 },
+  firmaCap: { fontSize: 7, color: GRIS, fontFamily: "Helvetica-Bold" },
   footer: {
     position: "absolute",
     bottom: 22,
@@ -157,12 +238,21 @@ export interface MinutePDFProps {
   participants: Participant[];
   analysis: Analysis;
   logoUrl?: string;
+  minuteId?: string;
 }
 
-function MinuteDocument({ meeting, participants, analysis, logoUrl }: MinutePDFProps) {
+function fmtStamp(iso: string) {
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())} hs`;
+}
+
+function MinuteDocument({ meeting, participants, analysis, logoUrl, minuteId }: MinutePDFProps) {
   const asistentes = participants.filter((p) => p.attended);
   const conCopia = participants.filter((p) => !p.attended);
   const facilitador = participants.find((p) => p.role === "Facilitador");
+  const responsableDecision = participants.find((p) => p.role === "Responsable de decisión");
+  const integ = computeIntegrity(meeting, participants, analysis, minuteId);
 
   return (
     <Document title={`Minuta ${meeting.name} — KIR S.A.`} author="KIR S.A. Meeting Agent">
@@ -351,6 +441,38 @@ function MinuteDocument({ meeting, participants, analysis, logoUrl }: MinutePDFP
           </View>
           <View style={s.secBody}>
             <Bullets items={analysis.nextSteps} />
+          </View>
+        </View>
+
+        <View style={s.sello} wrap={false}>
+          <Text style={s.selloH}>VALIDACIÓN E INTEGRIDAD DEL DOCUMENTO</Text>
+          <View style={s.selloRow}>
+            <Text style={s.selloK}>ID de minuta</Text>
+            <Text style={s.selloV}>{integ.minuteId}</Text>
+          </View>
+          <View style={s.selloRow}>
+            <Text style={s.selloK}>Emitida</Text>
+            <Text style={s.selloV}>{fmtStamp(integ.issuedAt)}</Text>
+          </View>
+          <View style={s.selloRow}>
+            <Text style={s.selloK}>Huella SHA-256</Text>
+            <Text style={[s.selloV, s.selloHash]}>{integ.hash}</Text>
+          </View>
+          <Text style={{ fontSize: 6.5, color: GRIS, marginTop: 3 }}>
+            Sello de integridad. Si el contenido se altera, esta huella deja de coincidir.
+            Verificable recalculando el SHA-256 del contenido canónico de la minuta.
+          </Text>
+          <View style={s.firmaRow}>
+            <View style={s.firmaBox}>
+              <View style={s.firmaLine} />
+              <Text style={s.firmaCap}>ELABORADA POR</Text>
+              <Text style={{ fontSize: 8 }}>{facilitador?.name || "—"}</Text>
+            </View>
+            <View style={s.firmaBox}>
+              <View style={s.firmaLine} />
+              <Text style={s.firmaCap}>VALIDADA POR</Text>
+              <Text style={{ fontSize: 8 }}>{responsableDecision?.name || "—"}</Text>
+            </View>
           </View>
         </View>
 

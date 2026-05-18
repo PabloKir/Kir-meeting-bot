@@ -1,17 +1,19 @@
 // =============================================================================
 // POST /api/distribute
 // =============================================================================
-// Genera el PDF FOG-11 server-side y lo envia por email (SMTP corporativo KIR)
-// a los participantes. PDF adjunto, sin firma criptografica.
+// Genera el PDF FOG-11 firmado (sello de integridad SHA-256) y lo distribuye:
+//   - Email vía Resend (PDF adjunto)
+//   - Slack vía Incoming Webhook (resumen; opcional)
 //
-// Env vars (cargar en Vercel, NO en el repo):
-//   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
-//   SMTP_SECURE  (opcional: "true" para TLS implicito en puerto 465)
+// Env vars (cargar en Vercel / .env.local, NO en el repo):
+//   RESEND_API_KEY        clave de Resend
+//   RESEND_FROM           remitente verificado, ej: "KIR Minutas <minuta@kir.com.ar>"
+//   SLACK_WEBHOOK_URL     (opcional) Incoming Webhook del canal de KIR
 // =============================================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import nodemailer from "nodemailer";
-import { renderMinutePDF } from "@/lib/pdf";
+import { Resend } from "resend";
+import { renderMinutePDF, computeIntegrity } from "@/lib/pdf";
 import type { Analysis, Meeting, Participant } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -25,22 +27,80 @@ interface Body {
   cc?: string[];
   subject?: string;
   message?: string;
+  slack?: boolean; // default true si hay webhook configurado
+  minuteId?: string;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export async function POST(req: NextRequest) {
-  const host = process.env.SMTP_HOST;
-  const port = parseInt(process.env.SMTP_PORT || "587", 10);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const from = process.env.SMTP_FROM || user;
+function escapeHtml(s: string): string {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
-  if (!host || !user || !pass || !from) {
+const fmtDate = (iso: string) => {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+};
+
+const slug = (s: string) =>
+  (s || "reunion")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 50);
+
+async function postToSlack(
+  webhook: string,
+  meeting: Meeting,
+  analysis: Analysis,
+  integ: { minuteId: string; hash: string },
+  recipientsCount: number
+) {
+  const pend = analysis.tasks.filter((t) => !/complet/i.test(t.status || ""));
+  const topPend = pend
+    .slice(0, 8)
+    .map((t) => {
+      const r = t.responsible ? ` — *${t.responsible}*` : "";
+      const d = t.dueDate ? ` _(vence ${fmtDate(t.dueDate)})_` : t.deadline ? ` _(${t.deadline})_` : "";
+      return `• ${t.text}${r}${d}`;
+    })
+    .join("\n");
+
+  const text =
+    `*Minuta FOG-11 — ${meeting.name}* (${fmtDate(meeting.date)})\n` +
+    `Área: *${meeting.area || "—"}* · Tareas: *${analysis.tasks.length}* (${pend.length} pendientes) · Riesgos: *${analysis.risks.length}*\n` +
+    (analysis.executiveSummary ? `\n${analysis.executiveSummary}\n` : "") +
+    (topPend ? `\n*Acciones pendientes:*\n${topPend}\n` : "") +
+    `\nPDF FOG-11 enviado por email a ${recipientsCount} destinatario(s). ` +
+    `ID: \`${integ.minuteId}\``;
+
+  const res = await fetch(webhook, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    throw new Error(`Slack ${res.status}: ${await res.text().catch(() => "")}`);
+  }
+}
+
+export async function POST(req: NextRequest) {
+  const resendKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM;
+
+  if (!resendKey || !from) {
     return NextResponse.json(
       {
         error:
-          "SMTP no configurado en el servidor. Faltan variables SMTP_HOST / SMTP_USER / SMTP_PASS / SMTP_FROM en Vercel.",
+          "Email no configurado: faltan RESEND_API_KEY y/o RESEND_FROM en el servidor. (RESEND_FROM debe ser un remitente de un dominio verificado en Resend, ej: \"KIR Minutas <minuta@kir.com.ar>\").",
       },
       { status: 500 }
     );
@@ -70,6 +130,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const integ = computeIntegrity(meeting, participants, analysis, body.minuteId);
+
   // Logo accesible por URL para el render del PDF
   const proto = req.headers.get("x-forwarded-proto") || "https";
   const hostHeader = req.headers.get("host") || "";
@@ -77,7 +139,13 @@ export async function POST(req: NextRequest) {
 
   let pdf: Buffer;
   try {
-    pdf = await renderMinutePDF({ meeting, participants, analysis, logoUrl });
+    pdf = await renderMinutePDF({
+      meeting,
+      participants,
+      analysis,
+      logoUrl,
+      minuteId: integ.minuteId,
+    });
   } catch (e: any) {
     console.error("PDF render error:", e);
     return NextResponse.json(
@@ -85,20 +153,6 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-
-  const fmtDate = (iso: string) => {
-    if (!iso) return "";
-    const [y, m, d] = iso.split("-");
-    return `${d}/${m}/${y}`;
-  };
-  const slug = (s: string) =>
-    (s || "reunion")
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 50);
 
   const subject =
     body.subject?.trim() ||
@@ -112,21 +166,19 @@ export async function POST(req: NextRequest) {
   <p>Estimados,</p>
   ${intro}
   <p>Se adjunta la minuta de la reunión <b>${escapeHtml(meeting.name)}</b> del ${fmtDate(meeting.date)}, en formato FOG-11 Rev.2.</p>
+  <table style="border-collapse:collapse;font-size:12px;color:#444;margin:12px 0">
+    <tr><td style="padding:2px 8px;color:#888">ID de minuta</td><td style="padding:2px 8px;font-family:monospace">${integ.minuteId}</td></tr>
+    <tr><td style="padding:2px 8px;color:#888">Huella SHA-256</td><td style="padding:2px 8px;font-family:monospace;font-size:10px">${integ.hash}</td></tr>
+  </table>
   <p style="color:#006B68;font-weight:bold">»» KIR S.A. — Pasión por crear</p>
   <hr style="border:none;border-top:1px solid #ddd"/>
-  <p style="font-size:11px;color:#888">Documento generado por KIR Meeting Agent. Si algún ítem estuviere incompleto o fuere incorrecto, notificar al emisor dentro de los cinco días de emitida.</p>
+  <p style="font-size:11px;color:#888">Documento con sello de integridad. Si algún ítem estuviere incompleto o fuere incorrecto, notificar al emisor dentro de los cinco días de emitida. Generado por KIR Meeting Agent.</p>
 </div>`;
 
-  const secure = process.env.SMTP_SECURE === "true" || port === 465;
-  const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: { user, pass },
-  });
-
+  // 1) Email vía Resend
   try {
-    await transporter.sendMail({
+    const resend = new Resend(resendKey);
+    const { error } = await resend.emails.send({
       from,
       to: recipients,
       cc: cc.length ? cc : undefined,
@@ -136,16 +188,32 @@ export async function POST(req: NextRequest) {
         {
           filename: `minuta_${slug(meeting.name)}_${meeting.date}.pdf`,
           content: pdf,
-          contentType: "application/pdf",
         },
       ],
     });
+    if (error) {
+      throw new Error(typeof error === "string" ? error : error.message || JSON.stringify(error));
+    }
   } catch (e: any) {
-    console.error("SMTP send error:", e);
+    console.error("Resend send error:", e);
     return NextResponse.json(
-      { error: "Error enviando el email: " + (e.message || e) },
+      { error: "Error enviando el email (Resend): " + (e.message || e) },
       { status: 502 }
     );
+  }
+
+  // 2) Slack (opcional, best-effort: no falla la distribución si Slack falla)
+  let slackPosted = false;
+  let slackError: string | undefined;
+  const webhook = process.env.SLACK_WEBHOOK_URL;
+  if (webhook && body.slack !== false) {
+    try {
+      await postToSlack(webhook, meeting, analysis, integ, recipients.length);
+      slackPosted = true;
+    } catch (e: any) {
+      slackError = e.message || String(e);
+      console.error("Slack post error:", e);
+    }
   }
 
   return NextResponse.json({
@@ -153,14 +221,9 @@ export async function POST(req: NextRequest) {
     sent: recipients.length,
     cc: cc.length,
     recipients,
+    minuteId: integ.minuteId,
+    slackPosted,
+    slackConfigured: !!webhook,
+    slackError,
   });
-}
-
-function escapeHtml(s: string): string {
-  return String(s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }

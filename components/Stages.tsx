@@ -295,6 +295,7 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
   const [distTo, setDistTo] = useState("");
   const [distCc, setDistCc] = useState("");
   const [distMsg, setDistMsg] = useState("");
+  const [distSlack, setDistSlack] = useState(true);
   const [distSending, setDistSending] = useState(false);
 
   useEffect(() => {
@@ -458,11 +459,19 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
           recipients,
           cc,
           message: distMsg,
+          slack: distSlack,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      showToast(`Minuta enviada a ${data.sent} destinatario(s)${data.cc ? ` + ${data.cc} en copia` : ""}.`);
+      const slackMsg = data.slackConfigured
+        ? data.slackPosted
+          ? " · Slack notificado"
+          : data.slackError
+          ? " · Slack falló"
+          : ""
+        : "";
+      showToast(`Minuta enviada a ${data.sent} destinatario(s)${data.cc ? ` + ${data.cc} en copia` : ""}${slackMsg}.`);
       setDistOpen(false);
     } catch (e: any) {
       showToast("Error al enviar: " + (e.message || e));
@@ -500,7 +509,7 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
             </div>
             <div className="p-6">
               <div className="text-xs text-kir-gris mb-4 leading-relaxed">
-                Se genera el PDF FOG-11 en el servidor y se envía como adjunto por el correo corporativo de KIR. Separá varios emails con coma.
+                Se genera el PDF FOG-11 firmado (sello de integridad SHA-256) y se envía como adjunto vía Resend. Separá varios emails con coma.
               </div>
               <div className="mb-4">
                 <label className="kir-label">Para (asistentes)</label>
@@ -529,6 +538,15 @@ export function MinuteStage({ onBack, onNext }: { onBack: () => void; onNext: ()
                   placeholder="Texto adicional que va en el cuerpo del email, antes del adjunto."
                 />
               </div>
+              <label className="flex items-center gap-2 mb-5 cursor-pointer select-none text-sm text-kir-negro">
+                <input
+                  type="checkbox"
+                  checked={distSlack}
+                  onChange={(e) => setDistSlack(e.target.checked)}
+                  style={{ accentColor: "#006B68" }}
+                />
+                También notificar al canal de Slack (si está configurado en el servidor)
+              </label>
               <div className="flex justify-end gap-3">
                 <Button variant="ghost" onClick={() => setDistOpen(false)} disabled={distSending}>
                   Cancelar
