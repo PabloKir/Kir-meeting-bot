@@ -31,7 +31,7 @@ Reemplazá `https://APP` por la URL real (ej. `https://minuta.kir.com.ar`).
 - [ ] **A.02 Participantes**: cargar 2+ con email → Iniciar reunión
 - [ ] **B.01 Captura**: "Cargar transcripción de ejemplo" (o subir un audio corto real) → Mapear voces
 - [ ] **B.02**: asignar voces → Analizar
-- [ ] **B.03 Análisis**: Claude devuelve resumen/tareas/riesgos (puede tardar 1-3 min en audios largos; no debe cortar por timeout — si corta, subir `proxy_read_timeout` en nginx)
+- [ ] **B.03 Análisis**: Claude devuelve resumen/tareas/riesgos. Es asíncrono (job + polling): la UI muestra un cronómetro y completa en 1-3 min sin cortar, aunque haya proxy/Cloudflare delante. **Requiere KV configurado** (si falta, modo síncrono → 502 detrás de proxy)
 - [ ] **B.04 / C.01 / C.02**: llegar a la Minuta. Render FOG-11 con logo KIR visible
 - [ ] **Exportar PDF**: abre ventana de impresión / guarda PDF correcto
 - [ ] La minuta aparece sola en **D.01 Historial**
@@ -69,7 +69,8 @@ Reemplazá `https://APP` por la URL real (ej. `https://minuta.kir.com.ar`).
 | `master/status` → `configured:false` | `MASTER_KEY` no quedó en el entorno. Verificar `.env.local` (sin comillas, sin espacios/`\n` al final) y reiniciar pm2 (`pm2 restart kir-meeting-agent`) |
 | `master/verify` → `ok:false` con la clave correcta | El valor guardado tiene un carácter de más (típico: `\r` o espacio). Reescribir la línea en `.env.local` y `pm2 restart` |
 | "Abrir con master" → "se protegió con una clave maestra anterior" | Sobre viejo: esa minuta se protegió con otra `MASTER_KEY`. Abrir con su clave individual y re-proteger. Fijar la `MASTER_KEY` definitiva antes de proteger en prod |
-| Análisis corta (~30-60s) | `proxy_read_timeout` de nginx muy bajo. Subir a 360s |
+| Análisis da 502 / no completa | Falta KV → `/api/analyze` quedó en modo síncrono y el proxy lo corta. Configurar `KV_REST_API_URL`/`KV_REST_API_TOKEN` (§4). Verificar `GET /api/analyze/<jobId>` responde `processing`/`completed` |
+| El job "se queda en processing" para siempre | El proceso que corre Claude (waitUntil) murió: revisar `pm2 logs` y memoria (`max_memory_restart`). Reintentar el análisis genera un job nuevo |
 | Historial no se comparte entre dispositivos | KV no configurado o credenciales mal. Ver `DEPLOY.md` §4 |
 | El logo no aparece en el PDF | nginx no pasa `X-Forwarded-Proto`; o `public/kir-logo.png` no se desplegó |
 | Email no sale | Revisar SMTP_* en `.env.local`; `SMTP_SECURE=true` solo si puerto 465 |

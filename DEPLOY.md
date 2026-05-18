@@ -35,10 +35,22 @@ location / {
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;   # IMPORTANTE: el PDF arma la URL del logo con esto
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_read_timeout 360s;                       # /api/analyze puede tardar 1-3 min en reuniones largas
-    client_max_body_size 5m;                       # el audio NO pasa por acá (va directo a AssemblyAI), pero por las dudas
+    proxy_read_timeout 120s;                       # holgura; el análisis ya NO es síncrono (ver §6 — job + polling)
+    client_max_body_size 8m;                       # el audio NO pasa por acá (va directo a AssemblyAI); esto cubre el JSON del transcript
 }
 ```
+
+> ✅ **El análisis de Claude es asíncrono** (job + polling, ver §6). Ninguna
+> request individual dura más de unos segundos, así que **los timeouts de
+> reverse-proxy / Cloudflare / oauth2-proxy ya NO son un problema**. Igual
+> conviene dejar `proxy_read_timeout` ≥ 60s por las demás rutas.
+
+> ⚠️ Si la app queda detrás de un **oauth2-proxy / Cloudflare** (SSO
+> corporativo): apuntá el *upstream* al **origen estable** (el server
+> Next.js / alias de producción), NO a una URL de deployment efímera, para
+> que los redeploys lleguen sin reconfigurar el proxy. El audio se sube
+> directo del browser a AssemblyAI: si el proxy filtra dominios de salida,
+> permití `api.assemblyai.com` y `api.anthropic.com`.
 
 pm2 (hay un `ecosystem.config.js` listo en la raíz):
 
@@ -60,7 +72,7 @@ Crear `.env.local` en la raíz (NO se commitea — está en `.gitignore`). Ver
 | `ANTHROPIC_API_KEY` | **Sí** | Análisis con Claude (`/api/analyze`) |
 | `ASSEMBLYAI_API_KEY` | **Sí** | Transcripción + diarización. Se expone al browser vía `/api/aai-key` (la app es interna; si se quiere ocultar, sumar auth) |
 | `CLAUDE_MODEL` | No | Modelo de Claude. Default `claude-sonnet-4-6`. `claude-haiku-4-5` = más rápido/barato |
-| `KV_REST_API_URL` + `KV_REST_API_TOKEN` | Recomendada | Historial compartido entre dispositivos/dominios (ver §4). Sin esto, el historial queda solo en localStorage del browser |
+| `KV_REST_API_URL` + `KV_REST_API_TOKEN` | **Sí** (detrás de proxy) | Historial compartido (ver §4) **y backend del análisis asíncrono** (ver §6). Sin KV, `/api/analyze` cae a modo síncrono — sirve solo en local; detrás de Cloudflare/oauth2-proxy con timeout corto daría 502 en reuniones largas |
 | `MASTER_KEY` | Recomendada | Clave maestra admin: gatea el borrado de minutas y permite abrir cualquier minuta protegida. Sin esto, el borrado no pide clave y las minutas protegidas solo se abren con su clave individual |
 | `SMTP_HOST` `SMTP_PORT` `SMTP_USER` `SMTP_PASS` `SMTP_FROM` | Para distribución | Envío de la minuta por email con PDF FOG-11 adjunto (`/api/distribute`). `SMTP_SECURE=true` solo si puerto 465 |
 
@@ -122,12 +134,24 @@ organización.
   crypto, history, areas, pdf.
 - **Audio**: el browser sube el archivo **directo a AssemblyAI** (evita el
   límite de body de serverless). En VPS también conviene mantenerlo así.
+- **Análisis Claude = asíncrono (job + polling)**: `POST /api/analyze`
+  registra un job en KV y devuelve `{ jobId }` al instante; Claude corre en
+  background (`waitUntil` de `@vercel/functions`, hasta `maxDuration`) y
+  guarda el resultado en KV (TTL 1h); el cliente hace polling a
+  `GET /api/analyze/[id]` cada 3s. Motivo: detrás de Cloudflare/oauth2-proxy
+  los timeouts cortos (30-100s) cortaban la llamada síncrona (Claude tarda
+  1-3 min) → 502. Con jobs, ninguna request es larga. **Requiere KV.** Sin
+  KV cae a modo síncrono (solo apto para local). La transcripción vive en
+  localStorage, así que un fallo de análisis nunca la pierde.
 - **Minutas protegidas**: cifrado AES-GCM **client-side**. v2 = DEK
   doble-envuelta (clave de usuario + `MASTER_KEY` vía server). El server
   nunca ve el contenido en claro al proteger.
 - **Áreas**: lista cerrada en `lib/areas.ts` (editar ahí para agregar/quitar).
-- `maxDuration` exportado en algunas rutas API es un hint de Vercel; en
-  self-host no aplica — el límite real lo pone `proxy_read_timeout` de nginx.
+- `maxDuration` exportado en rutas API es un hint de Vercel (tope del
+  trabajo en background del análisis). En self-host con `next start` no hay
+  ese tope; el job corre en el proceso Node hasta terminar. `waitUntil` de
+  `@vercel/functions` es un no-op seguro fuera de Vercel (la promesa igual
+  se ejecuta), así que el patrón job+polling funciona igual en el VPS.
 - Todo en español, identidad visual KIR (`public/kir-logo.png`).
 
 ---
