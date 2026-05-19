@@ -73,17 +73,32 @@ async function runAnalysis(body: AnalyzeRequest): Promise<AnalyzeResponse> {
     manualNotes,
   });
 
-  const model = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";
+  const model = resolveModel(body.model);
   const anthropic = new Anthropic({ apiKey });
   const msg = await anthropic.messages.create({
     model,
-    max_tokens: 4096,
+    max_tokens: 8192,
     messages: [{ role: "user", content: prompt }],
   });
 
   const textBlock = msg.content.find((c: any) => c.type === "text") as any;
   const raw = textBlock?.text || "";
-  const parsed = parseClaudeJSON(raw);
+
+  // Si Claude cortó por límite de tokens, el JSON viene truncado/ inválido.
+  if ((msg as any).stop_reason === "max_tokens") {
+    throw new Error(
+      "La reunión es muy extensa y la respuesta se truncó. Probá de nuevo con el modelo Haiku (más rápido y con mejor manejo de transcripciones largas) o dividí la reunión."
+    );
+  }
+
+  let parsed: any;
+  try {
+    parsed = parseClaudeJSON(raw);
+  } catch {
+    throw new Error(
+      "No se pudo interpretar la respuesta del modelo (JSON inválido, probablemente por el tamaño de la reunión). Reintentá; si persiste, usá el modelo Haiku."
+    );
+  }
 
   const analysis: Analysis = {
     executiveSummary: parsed.executiveSummary || "",
@@ -111,6 +126,21 @@ async function runAnalysis(body: AnalyzeRequest): Promise<AnalyzeResponse> {
     openQuestions: Array.isArray(parsed.openQuestions) ? parsed.openQuestions : [],
     nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [],
   };
+
+  // Si quedó completamente vacío, NO devolvemos un resultado "completado"
+  // en blanco: lo tratamos como error para que el cliente muestre Reintentar.
+  const totalItems =
+    analysis.topics.length +
+    analysis.decisions.length +
+    analysis.tasks.length +
+    analysis.risks.length +
+    analysis.openQuestions.length +
+    analysis.nextSteps.length;
+  if (!analysis.executiveSummary && totalItems === 0) {
+    throw new Error(
+      "El modelo no devolvió contenido analizable (posible respuesta vacía o formato inesperado). Reintentá; si persiste, probá con otro modelo."
+    );
+  }
 
   const questions = generateQuestions(analysis, participants);
   return { analysis, questions };
@@ -256,6 +286,21 @@ Analizá la transcripción y devolvé EXCLUSIVAMENTE un objeto JSON válido (sin
 Devolvé SOLAMENTE el JSON, nada más.`;
 }
 
+// Modelos habilitados (allowlist). Claves estables hacia la UI; los IDs
+// concretos de Anthropic se pueden ajustar acá o por env sin tocar el cliente.
+const MODEL_MAP: Record<string, string> = {
+  haiku: process.env.CLAUDE_MODEL_HAIKU || "claude-haiku-4-5",
+  sonnet: process.env.CLAUDE_MODEL_SONNET || "claude-sonnet-4-6",
+  opus: process.env.CLAUDE_MODEL_OPUS || "claude-opus-4-1",
+};
+
+function resolveModel(choice?: string): string {
+  if (choice && MODEL_MAP[choice]) return MODEL_MAP[choice];
+  // compatibilidad: CLAUDE_MODEL puede traer un id completo directo
+  if (process.env.CLAUDE_MODEL) return process.env.CLAUDE_MODEL;
+  return MODEL_MAP.sonnet;
+}
+
 function parseClaudeJSON(raw: string): any {
   // Limpiar code fences si Claude los puso
   let text = raw.trim();
@@ -266,12 +311,8 @@ function parseClaudeJSON(raw: string): any {
   const last = text.lastIndexOf("}");
   if (first >= 0 && last > first) text = text.substring(first, last + 1);
 
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    console.error("JSON parse failed. Raw:", raw.substring(0, 500));
-    return {};
-  }
+  // Lanza si no parsea (el caller lo transforma en error visible con retry)
+  return JSON.parse(text);
 }
 
 function matchParticipantId(

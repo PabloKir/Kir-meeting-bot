@@ -4,6 +4,13 @@ import { useState, useEffect } from "react";
 import { useStore } from "@/lib/store";
 import { SectionHead, Button, Chev, Tag, Alert } from "./Brand";
 import { Actions } from "./Setup";
+import type { ClaudeModelChoice } from "@/lib/types";
+
+const MODELS: { key: ClaudeModelChoice; label: string; hint: string }[] = [
+  { key: "haiku", label: "Haiku", hint: "Rápido y económico · ideal reuniones largas" },
+  { key: "sonnet", label: "Sonnet", hint: "Equilibrado (default)" },
+  { key: "opus", label: "Opus", hint: "Máxima calidad · más lento" },
+];
 
 export function AnalysisStage({ onBack, onNext }: { onBack: () => void; onNext: () => void }) {
   const capture = useStore((s) => s.capture);
@@ -18,6 +25,7 @@ export function AnalysisStage({ onBack, onNext }: { onBack: () => void; onNext: 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
+  const [model, setModel] = useState<ClaudeModelChoice>("sonnet");
   const hasResult =
     !!analysis.executiveSummary ||
     analysis.topics.length +
@@ -55,6 +63,7 @@ export function AnalysisStage({ onBack, onNext }: { onBack: () => void; onNext: 
           utterances: capture.utterances,
           speakerMap: capture.speakerMap,
           manualNotes: capture.manualNotes,
+          model,
         }),
       });
       if (!res.ok) {
@@ -140,10 +149,34 @@ export function AnalysisStage({ onBack, onNext }: { onBack: () => void; onNext: 
     <>
       <SectionHead
         eyebrow="Stage B.03 · Análisis IA"
-        title="Agente · Claude Sonnet 4.6"
-        subtitle="Claude analizó la transcripción atribuida y la estructuró en temas, decisiones, tareas (con responsable inferido del contexto), riesgos y próximos pasos."
+        title="Agente · Análisis de la reunión"
+        subtitle="El modelo analiza la transcripción atribuida y la estructura en temas, decisiones, tareas (con responsable inferido del contexto), riesgos y próximos pasos."
         meta={{ num: "B.03", label: loading ? "Procesando…" : `${total} ítems` }}
       />
+
+      <div className="bg-white border border-kir-negro p-4 mb-4 flex flex-wrap items-center gap-3">
+        <span className="font-display uppercase text-kir-gris" style={{ fontSize: 9, letterSpacing: "0.22em" }}>
+          <Chev kind="single" /> Modelo
+        </span>
+        <div className="flex flex-wrap gap-2">
+          {MODELS.map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => setModel(m.key)}
+              disabled={loading}
+              title={m.hint}
+              className={`kir-chip ${model === m.key ? "active" : ""}`}
+            >
+              <span className="chev">»</span>
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-kir-gris">
+          {MODELS.find((m) => m.key === model)?.hint}
+        </span>
+      </div>
 
       {error && (
         <Alert variant="warn" title="Error en análisis">
@@ -220,6 +253,22 @@ export function AnalysisStage({ onBack, onNext }: { onBack: () => void; onNext: 
           />
           <AnalysisBlock title="Preguntas abiertas" items={analysis.openQuestions} />
           <AnalysisBlock title="Próximos pasos" items={analysis.nextSteps} span={2} />
+        </div>
+      )}
+
+      {/* Guard: nunca pantalla en blanco. Si no hay resultado, ni carga, ni
+          error → ofrecer disparar el análisis manualmente. */}
+      {!hasResult && !loading && !error && (
+        <div className="bg-white border border-kir-negro p-10 text-center">
+          <div className="font-display uppercase text-kir-gris mb-3" style={{ fontSize: 10, letterSpacing: "0.22em" }}>
+            <Chev /> Análisis no ejecutado
+          </div>
+          <div className="text-sm text-kir-gris mb-5 max-w-[560px] mx-auto leading-relaxed">
+            Elegí el modelo arriba (para reuniones largas conviene <b>Haiku</b>) y ejecutá el análisis. La transcripción está guardada localmente — no se pierde.
+          </div>
+          <Button variant="primary" onClick={runAnalysis}>
+            Analizar con {MODELS.find((m) => m.key === model)?.label} <Chev className="text-white" />
+          </Button>
         </div>
       )}
 

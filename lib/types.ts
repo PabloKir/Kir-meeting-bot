@@ -144,12 +144,16 @@ export interface TranscribeStatusResponse {
   errorMsg?: string;
 }
 
+// Modelos de Claude disponibles para el análisis (allowlist en el server).
+export type ClaudeModelChoice = "haiku" | "sonnet" | "opus";
+
 export interface AnalyzeRequest {
   meeting: Meeting;
   participants: Participant[];
   utterances: Utterance[];
   speakerMap: SpeakerMap;
   manualNotes: string;
+  model?: ClaudeModelChoice;
 }
 
 export interface AnalyzeResponse {
