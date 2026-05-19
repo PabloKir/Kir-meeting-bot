@@ -21,6 +21,34 @@ dashboards por área y recordatorios automáticos.
 | `.env.example` | Todas las variables documentadas |
 | `README.md` | Funcional del producto / flujo de pantallas |
 
+## Estado de verificación — al 19/05/2026
+
+**Verificado por mí (Claude), end-to-end contra el deployment de
+producción de Vercel** (`vercel curl` autenticado a la URL directa, no
+vía el proxy):
+
+| Qué | Cómo se probó | Resultado |
+|---|---|---|
+| Análisis async (POST → jobId → polling) | POST `/api/analyze` + GET `/api/analyze/[id]` con payload real | ✅ jobId inmediato, completado |
+| Selector de modelo Haiku | POST con `model:"haiku"` | ✅ completó en ~5 s, análisis correcto |
+| Clave maestra (wrap/unwrap/verify) | round-trip contra `/api/master/*` | ✅ huella OK; clave correcta vs incorrecta |
+| Build de producción | `npm run build` en cada commit | ✅ sin errores |
+| Polling de transcripción tolerante | revisión de código + lógica de reintentos | ✅ no aborta ante blips |
+| Commits/deploys | git push + `vercel --prod` | ✅ deployment `Ready`, alias estable actualizado |
+
+**NO verificable por mí (depende del CTO / infra de KIR):**
+
+| Qué | Por qué | Dueño |
+|---|---|---|
+| Que `minuta.kir.com.ar` sirva el build actual | El proxy openresty/oauth2 de KIR sirve un build viejo; no tengo acceso a esa capa | **CTO** — ver "BLOQUEANTE de infra" |
+| Envío real de email/Slack | Falta cuenta Resend + dominio verificado + env vars | **CTO** — ver `EMAIL-SETUP.md` |
+| Recordatorios automáticos (cron) | Dependen de Resend configurado | **CTO** |
+| Flujo en vivo a través del SSO M365 | No tengo sesión SSO; probé contra la URL Vercel directa | **CTO / usuario** |
+
+> En criollo: el código y los deploys están sanos y probados. Lo que falta
+> es **infra del lado de KIR** (destrabar el upstream del proxy + cargar
+> Resend). Una vez hecho eso, validar con `VALIDATION.md`.
+
 ## Estado actual
 
 Todo el código está completo, deployado y verificado end-to-end:
