@@ -79,15 +79,58 @@ export function CaptureStage({ onBack, onNext }: { onBack: () => void; onNext: (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Polling when transcribing
+  // Polling when transcribing — TOLERANTE a fallos transitorios.
+  // En reuniones largas el polling corre muchos ciclos; detrás del proxy/SSO
+  // un blip de red o un refresh de sesión NO debe matar el trabajo: la
+  // transcripción sigue corriendo en AssemblyAI. Solo se da por fallida tras
+  // muchos errores consecutivos. El audio nunca se pierde (queda en el blob).
   useEffect(() => {
     if (capture.status !== "transcribing" || !capture.transcribeJobId) return;
 
+    let consecutiveFails = 0;
+    const startedAt = Date.now();
+    const MAX_CONSECUTIVE_FAILS = 25; // ~75s de reintentos antes de rendirse
+    const MAX_MS = 40 * 60 * 1000; // tope duro 40 min
+
+    const softRetry = (reason: string) => {
+      consecutiveFails++;
+      if (consecutiveFails >= MAX_CONSECUTIVE_FAILS) {
+        setCapture({
+          status: "failed",
+          errorMsg:
+            "Se perdió la conexión con el servidor mientras se transcribía (" +
+            reason +
+            "). El audio grabado NO se perdió: descargalo con «Descargar audio» y/o reintentá «Transcribir». La transcripción puede seguir procesándose en AssemblyAI.",
+        });
+        if (pollRef.current) clearInterval(pollRef.current);
+      }
+      // si no llegamos al máximo, el próximo tick reintenta
+    };
+
     const poll = async () => {
+      if (Date.now() - startedAt > MAX_MS) {
+        setCapture({
+          status: "failed",
+          errorMsg:
+            "La transcripción superó el tiempo máximo de espera. El audio no se perdió: reintentá «Transcribir».",
+        });
+        if (pollRef.current) clearInterval(pollRef.current);
+        return;
+      }
       try {
-        const res = await fetch(`/api/transcribe/${capture.transcribeJobId}`);
+        const res = await fetch(`/api/transcribe/${capture.transcribeJobId}`, {
+          cache: "no-store",
+        });
+        // Detrás de SSO/proxy una respuesta puede ser un redirect HTML al
+        // login en vez de JSON → lo tratamos como transitorio, no como error.
+        const ct = res.headers.get("content-type") || "";
+        if (!res.ok || !ct.includes("application/json")) {
+          softRetry(`HTTP ${res.status}`);
+          return;
+        }
         const data = await res.json();
         if (data.status === "completed") {
+          consecutiveFails = 0;
           setCapture({
             status: "transcribed",
             utterances: data.utterances || [],
@@ -95,13 +138,21 @@ export function CaptureStage({ onBack, onNext }: { onBack: () => void; onNext: (
           });
           if (pollRef.current) clearInterval(pollRef.current);
         } else if (data.status === "error") {
-          setCapture({ status: "failed", errorMsg: data.errorMsg || "Error en transcripción" });
+          // Error REAL devuelto por AssemblyAI → sí es definitivo
+          setCapture({
+            status: "failed",
+            errorMsg:
+              (data.errorMsg || "Error en transcripción") +
+              " · El audio no se perdió: podés descargarlo y reintentar.",
+          });
           if (pollRef.current) clearInterval(pollRef.current);
+        } else {
+          // queued / processing → seguimos; reseteamos el contador de fallos
+          consecutiveFails = 0;
         }
-        // si sigue 'queued' o 'processing', el siguiente tick lo chequea
       } catch (e: any) {
-        setCapture({ status: "failed", errorMsg: e.message || "Error de red" });
-        if (pollRef.current) clearInterval(pollRef.current);
+        // "Failed to fetch" / parse / red → transitorio
+        softRetry(e?.message || "error de red");
       }
     };
 
